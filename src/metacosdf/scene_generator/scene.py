@@ -2,6 +2,8 @@ import torch
 from torch import Tensor
 from dataclasses import dataclass
 import math
+import numpy as np
+from scipy.ndimage import distance_transform_edt
 
 from metacosdf.scene_generator.obstacles import Obstacle
 from metacosdf.scene_generator.arm import PlanarArm
@@ -32,5 +34,17 @@ class Scene:
         """(..., n) -> (...): return binary collision labels(-1 = collision, +1 = free)"""
         return torch.where(self.clearance(arm, q) > 0, 1.0, -1.0)
 
-    def cspace_sdf(self) -> Tensor:
-        pass
+    def cspace_sdf(self, arm: PlanarArm, n: int = 256) -> Tensor:
+        """return n x n ground truth cspace sdf"""
+        grid = cspace_grid(n)
+        gt_col = self.collision_labels(arm, grid)
+        free = (gt_col > 0).numpy()
+
+        unit = 2 * math.pi / n
+        tiled = np.tile(free, (3, 3))
+
+        to_col = distance_transform_edt(tiled, sampling=unit)
+        to_free = distance_transform_edt(~tiled, sampling=unit)
+        gt_dis = np.where(tiled, to_col - unit / 2, -(to_free - unit / 2))
+        gt_sdf = torch.from_numpy(gt_dis[n : 2 * n, n : 2 * n]).float()
+        return gt_sdf

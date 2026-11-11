@@ -4,4 +4,4 @@ arm:
   link_radius: 0.1
 
 scene:
-  
+  bounds: [-3.0, 3.0, -3.0, 3.0]  # xmin, xmax, ymin, ymax

@@ -1,0 +1,7 @@
+arm:
+  link_lengths: [1.0, 1.0]
+  base: [0.0, 0.0]
+  link_radius: 0.1
+
+scene:
+  

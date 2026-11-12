@@ -48,3 +48,45 @@ class Scene:
         gt_dis = np.where(tiled, to_col - unit / 2, -(to_free - unit / 2))
         gt_sdf = torch.from_numpy(gt_dis[n : 2 * n, n : 2 * n]).float()
         return gt_sdf
+
+    def sample_configurations(
+        self,
+        arm: PlanarArm,
+        n_samples: int = 5000,
+        use_boundary_sampling: bool = True,
+        boundary_ratio: float = 0.5,
+        sigma: float = 0.15,
+    ) -> tuple[Tensor, Tensor]:
+        """Sample C-space configurations combining Jacobian-weighted and boundary-densified sampling."""
+        n_boundary = int(n_samples * boundary_ratio) if use_boundary_sampling else 0
+        q_boundary = torch.empty((0, arm.dof), dtype=torch.float32)
+
+        if n_boundary > 0:
+            q1 = arm.weighted_sample(n=max(n_boundary * 5, 1000))
+            q2 = q1 + torch.randn_like(q1) * sigma
+
+            y1 = self.collision_labels(arm, q1 % (2 * math.pi))
+            y2 = self.collision_labels(arm, q2 % (2 * math.pi))
+
+            cross_mask = y1 != y2
+            q1_cross, q2_cross = q1[cross_mask], q2[cross_mask]
+            y1_cross = y1[cross_mask]
+
+            if len(q1_cross) > 0:
+                q_mid = 0.5 * (q1_cross + q2_cross)
+                y_mid = self.collision_labels(arm, q_mid % (2 * math.pi))
+
+                same_as_q1 = (y_mid == y1_cross).unsqueeze(-1)
+                q1_closer = torch.where(same_as_q1, q_mid, q1_cross)
+                q2_closer = torch.where(same_as_q1, q2_cross, q_mid)
+
+                q_boundary = torch.cat([q1_closer, q2_closer], dim=0) % (2 * math.pi)
+                q_boundary = q_boundary[:n_boundary]
+
+        n_weighted = n_samples - len(q_boundary)
+        q_weighted = arm.weighted_sample(n=n_weighted)
+
+        q = torch.cat([q_weighted, q_boundary], dim=0)
+        q = q[torch.randperm(len(q))]
+        y = self.collision_labels(arm, q)
+        return q, y

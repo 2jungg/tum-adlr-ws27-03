@@ -167,17 +167,84 @@ class SceneVisualizer:
         _add_colorbar(ax, im, vmin, vmax)
         return ax
 
+    def plot_samples(
+        self,
+        ax: plt.Axes | None = None,
+        q_samples: Tensor | None = None,
+        y_samples: Tensor | None = None,
+        values: Tensor | None = None,
+        n: int = 256,
+        title: str | None = None,
+    ) -> plt.Axes:
+        """Plot sampled C-space configurations overlaid on the ground-truth collision boundary."""
+        if ax is None:
+            _, ax = plt.subplots(figsize=(5.5, 5.2))
+
+        if values is None and self.arm is not None:
+            values = self.scene.cspace_sdf(self.arm, n=n)
+
+        if values is not None:
+            grid_n = values.shape[0]
+            Q = cspace_grid(grid_n).numpy()
+            V = values.detach().cpu().numpy()
+            if V.min() < 0.0:
+                ax.contourf(Q[..., 0], Q[..., 1], V, levels=[float(V.min()) - 1.0, 0.0], colors=["#d1e5f0"], alpha=0.5)
+            if V.min() < 0.0 < V.max():
+                ax.contour(Q[..., 0], Q[..., 1], V, levels=[0.0], colors="black", linewidths=1.2)
+
+        if q_samples is not None:
+            if y_samples is None and self.arm is not None:
+                y_samples = self.scene.collision_labels(self.arm, q_samples)
+
+            q_np = torch.remainder(q_samples.detach().cpu(), TWO_PI).numpy()
+            if y_samples is not None:
+                y_np = y_samples.detach().cpu().numpy()
+                free_mask = y_np > 0
+                col_mask = ~free_mask
+                ax.scatter(q_np[free_mask, 0], q_np[free_mask, 1], s=4, c=FREE_COLOR, alpha=0.45, label=f"free ({free_mask.sum()})")
+                ax.scatter(q_np[col_mask, 0], q_np[col_mask, 1], s=4, c=COLLISION_COLOR, alpha=0.55, label=f"collision ({col_mask.sum()})")
+                ax.legend(loc="upper right", fontsize=8, markerscale=2.5, framealpha=0.85)
+            else:
+                ax.scatter(q_np[:, 0], q_np[:, 1], s=4, c="black", alpha=0.45)
+
+        if title is None:
+            n_pts = len(q_samples) if q_samples is not None else 0
+            title = f"Sampled Configurations (N={n_pts})"
+
+        ticks = [0.0, math.pi, TWO_PI]
+        ax.set(
+            xlim=(0.0, TWO_PI),
+            ylim=(0.0, TWO_PI),
+            xticks=ticks,
+            yticks=ticks,
+            xticklabels=["0", "π", "2π"],
+            yticklabels=["0", "π", "2π"],
+            xlabel=r"$\theta_1$ [rad]",
+            ylabel=r"$\theta_2$ [rad]",
+            title=title,
+            aspect="equal",
+        )
+        return ax
+
     def show(
         self,
         qs: Tensor | None = None,
+        q_samples: Tensor | None = None,
+        y_samples: Tensor | None = None,
         n: int = 256,
         show_ws_sdf: bool = False,
         save_path: str | Path | None = None,
     ) -> None:
-        """Display workspace and C-space GT SDF side by side, or save to file if save_path is given."""
+        """Display workspace, C-space GT SDF, and optional sampled points, or save to file."""
         if self.arm is None:
             fig, ax = plt.subplots(figsize=(5.8, 5.2))
             self.plot_workspace(ax=ax, show_sdf=show_ws_sdf)
+        elif q_samples is not None:
+            fig, axes = plt.subplots(1, 3, figsize=(16.5, 5.0))
+            gt_sdf = self.scene.cspace_sdf(self.arm, n=n)
+            self.plot_workspace(ax=axes[0], qs=qs, show_sdf=show_ws_sdf, title="Workspace (green=free, red=collision)")
+            self.plot_cspace(ax=axes[1], values=gt_sdf, qs=qs, n=n)
+            self.plot_samples(ax=axes[2], q_samples=q_samples, y_samples=y_samples, values=gt_sdf, n=n)
         else:
             fig, axes = plt.subplots(1, 2, figsize=(11.5, 5.0))
             self.plot_workspace(ax=axes[0], qs=qs, show_sdf=show_ws_sdf, title="Workspace (green=free, red=collision)")

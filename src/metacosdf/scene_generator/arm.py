@@ -43,6 +43,19 @@ class PlanarArm:
         s = torch.linspace(0, 1, per_link, dtype=q.dtype, device=q.device)[:, None]  # (per_link, 1)
         return (start + s * (end - start)).flatten(-3, -2)  # (..., n, per_link, 2) -> (..., n*per_link, 2)
 
+    def jacobian_volume(self, q: Tensor) -> Tensor:
+        """(..., n) -> (...,): sqrt(det(J^T J)) where J = d(embedding)/dq."""
+        J = torch.func.vmap(torch.func.jacfwd(self.embedding))(q)   # (..., 2n, n)
+        JTJ = J.transpose(-1, -2) @ J
+        return torch.linalg.det(JTJ).clamp(min=0.0).sqrt()
+
+    def weighted_sample(self, n: int, oversample: int = 5) -> Tensor:
+        """Sample n configurations weighted by Jacobian volume."""
+        q_cand = torch.rand(n * oversample, self.dof) * (2.0 * pi)
+        weights = self.jacobian_volume(q_cand)
+        idx = torch.multinomial(weights, num_samples=n, replacement=False)
+        return q_cand[idx]
+
 if __name__ == "__main__":
     test_arm = PlanarArm()
     print(test_arm.joint_positions(Tensor((0, 0))))

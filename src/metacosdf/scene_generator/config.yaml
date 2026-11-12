@@ -5,3 +5,17 @@ arm:
 
 scene:
   bounds: [-3.0, 3.0, -3.0, 3.0]  # xmin, xmax, ymin, ymax
+  max_obs: 4
+  min_base_clearance: 0.2
+
+dataset:
+  n_train: 100
+  n_val: 20
+  n_eval: 20
+  n_samples: 5000
+  boundary_sampling: true
+  boundary_ratio: 0.5
+  sigma: 0.15
+  bisection_steps: 3
+  seed: 42
+  out_dir: "data/scenes"

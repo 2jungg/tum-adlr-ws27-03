@@ -16,6 +16,12 @@ def main() -> None:
         action="store_true",
         help="Sample configurations and visualize them in a 3rd subplot.",
     )
+    parser.add_argument(
+        "--bisection_steps",
+        type=int,
+        default=3,
+        help="Iterative steps for boundary sampling (default: 3)",
+    )
     args = parser.parse_args()
 
     arm = PlanarArm()
@@ -37,6 +43,7 @@ def main() -> None:
             use_boundary_sampling=True,
             boundary_ratio=0.5,
             sigma=0.15,
+            bisection_steps=args.bisection_steps,
         )
 
     visualizer = SceneVisualizer(scene, arm)

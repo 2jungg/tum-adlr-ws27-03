@@ -1,5 +1,4 @@
-"""Visualization utilities for 2D workspace and C-space distance fields.
-This part is written with AI to make clear plot image"""
+"""Visualization utilities for 2D workspace and C-space distance fields."""
 
 import math
 from dataclasses import dataclass

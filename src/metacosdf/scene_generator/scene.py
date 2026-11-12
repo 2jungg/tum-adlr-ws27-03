@@ -56,6 +56,7 @@ class Scene:
         use_boundary_sampling: bool = True,
         boundary_ratio: float = 0.5,
         sigma: float = 0.15,
+        bisection_steps: int = 3,
     ) -> tuple[Tensor, Tensor]:
         """Sample C-space configurations combining Jacobian-weighted and boundary-densified sampling."""
         n_boundary = int(n_samples * boundary_ratio) if use_boundary_sampling else 0
@@ -73,14 +74,15 @@ class Scene:
             y1_cross = y1[cross_mask]
 
             if len(q1_cross) > 0:
-                q_mid = 0.5 * (q1_cross + q2_cross)
-                y_mid = self.collision_labels(arm, q_mid % (2 * math.pi))
+                for _ in range(bisection_steps):
+                    q_mid = 0.5 * (q1_cross + q2_cross)
+                    y_mid = self.collision_labels(arm, q_mid % (2 * math.pi))
 
-                same_as_q1 = (y_mid == y1_cross).unsqueeze(-1)
-                q1_closer = torch.where(same_as_q1, q_mid, q1_cross)
-                q2_closer = torch.where(same_as_q1, q2_cross, q_mid)
+                    same_as_q1 = (y_mid == y1_cross).unsqueeze(-1)
+                    q1_cross = torch.where(same_as_q1, q_mid, q1_cross)
+                    q2_cross = torch.where(same_as_q1, q2_cross, q_mid)
 
-                q_boundary = torch.cat([q1_closer, q2_closer], dim=0) % (2 * math.pi)
+                q_boundary = torch.cat([q1_cross, q2_cross], dim=0) % (2 * math.pi)
                 q_boundary = q_boundary[:n_boundary]
 
         n_weighted = n_samples - len(q_boundary)

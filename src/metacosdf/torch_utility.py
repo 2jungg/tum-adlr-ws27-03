@@ -10,4 +10,5 @@ def torchify_as(reference_tensor: Tensor) -> Callable[[Any], Tensor]:
         return torch.as_tensor(
             data=target_data, dtype=reference_tensor.dtype, device=reference_tensor.device
         )
+
     return torchify

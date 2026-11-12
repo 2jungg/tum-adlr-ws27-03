@@ -31,3 +31,16 @@ torch = [{ index = "pytorch-cpu", extra = "cpu" }]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
 explicit = true
+
+[tool.ruff]
+line-length = 96
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "N", "NPY"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "ruff>=0.17.5",
+    "ty>=0.0.101",
+]

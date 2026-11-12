@@ -6,11 +6,11 @@ from torch import Tensor
 from metacosdf.torch_utility import torchify_as
 
 
-@dataclass(frozen=True)
+@dataclass
 class PlanarArm:
     """Planar serial arm with revolute joints."""
 
-    link_lengths: list[float] = field(default_factory = lambda: [1.0, 1.0])
+    link_lengths: list[float] = field(default_factory=lambda: [1.0, 1.0])
     base_position_x: float = 0.0
     base_position_y: float = 0.0
     link_radius: float = 0.1
@@ -49,7 +49,10 @@ class PlanarArm:
         return self.control_points(q).flatten(-2)
 
     def link_points(self, q: Tensor, points_per_link: int = 32) -> Tensor:
-        """(..., n) -> (..., n * points_per_link, 2): evenly spaced points along every link, endpoints included"""
+        """
+        (..., n) -> (..., n * points_per_link, 2): evenly spaced points along every link,
+        endpoints included
+        """
         # (..., n+1, 2)
         p = self.joint_positions(q)
         # (..., n, 1, 2)
@@ -57,7 +60,9 @@ class PlanarArm:
         # (..., n, 1, 2)
         end = p[..., 1:, None, :]
         # (points_per_link, 1): fractions 0 ... 1 of the way from the start to the end of a link
-        fractions = torch.linspace(0, 1, points_per_link, dtype=q.dtype, device=q.device)[:, None]
+        fractions = torch.linspace(0, 1, points_per_link, dtype=q.dtype, device=q.device)[
+            :, None
+        ]
         # (..., n, points_per_link, 2)
         link_points = start + fractions * (end - start)
         return link_points.flatten(-3, -2)

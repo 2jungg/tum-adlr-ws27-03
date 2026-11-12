@@ -8,7 +8,7 @@ from torch import Tensor
 from metacosdf.torch_utility import torchify_as
 
 
-@dataclass(frozen=True)
+@dataclass
 class Obstacle(ABC):
     @abstractmethod
     def sdf(self, p: Tensor) -> Tensor:
@@ -20,7 +20,7 @@ class Obstacle(ABC):
         """Name for the obstacle type to be used in config files."""
 
 
-@dataclass(frozen=True)
+@dataclass
 class Circle(Obstacle):
     center_x: float
     center_y: float
@@ -28,15 +28,17 @@ class Circle(Obstacle):
 
     def sdf(self, p: Tensor) -> Tensor:
         torchify = torchify_as(p)
-        return torch.linalg.vector_norm(p - torchify((self.center_x, self.center_y)), dim=-1) - self.radius
-
+        return (
+            torch.linalg.vector_norm(p - torchify((self.center_x, self.center_y)), dim=-1)
+            - self.radius
+        )
 
     @classmethod
     def config_key(cls) -> str:
         return "circle"
 
 
-@dataclass(frozen=True)
+@dataclass
 class Box(Obstacle):
     center_x: float
     center_y: float
@@ -66,7 +68,7 @@ class Box(Obstacle):
         return "box"
 
 
-@dataclass(frozen=True)
+@dataclass
 class Composition(Obstacle):
     elements: list[Obstacle]
 

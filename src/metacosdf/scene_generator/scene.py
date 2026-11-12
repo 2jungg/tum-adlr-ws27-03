@@ -11,8 +11,9 @@ from metacosdf.scene_generator.obstacles import Obstacle
 from metacosdf.robot import PlanarArm
 
 
-def cspace_grid(n: int = 256) -> Tensor:
-    axis = torch.arange(n, dtype=torch.float32) * (2 * math.pi / n)
+def cspace_grid(resolution: int = 256) -> Tensor:
+    """(res, res, 2) grid of configurations, "ij" indexing: grid[i, j] = (q1_i, q2_j), q_k = k * 2pi / res."""
+    axis = torch.arange(resolution, dtype=torch.float32) * (2 * math.pi / resolution)
     q1, q2 = torch.meshgrid(axis, axis, indexing="ij")
     return torch.stack([q1, q2], dim=-1)
 
@@ -31,28 +32,28 @@ class Scene:
 
     bounds: Bounds = field(default_factory=Bounds)
 
-    def workspace_grid(self, resolution: int = 300) -> tuple[Tensor, ...]:
-        """xy grid over the scene bounds: X and Y, each (res, res), indexing="ij"."""
-        return torch.meshgrid(
+    def workspace_grid(self, resolution: int = 300) -> Tensor:
+        """(res, res, 2) grid of points over the scene bounds, "ij" indexing: grid[i, j] = (x_i, y_j)."""
+        grid_x, grid_y = torch.meshgrid(
             torch.linspace(self.bounds.xmin, self.bounds.xmax, resolution),
             torch.linspace(self.bounds.ymin, self.bounds.ymax, resolution),
             indexing="ij",
         )
+        return torch.stack([grid_x, grid_y], dim=-1)
 
     def clearance(self, q: Tensor, points_per_link: int = 32) -> Tensor:
         """(..., n) -> (...): return float clearance"""
-        lp = self.robot.link_points(q, points_per_link=points_per_link)  # shape: (..., n * per_link, 2)
-        return self.obstacle.sdf(lp).amin(dim=-1) - self.robot.link_radius  # shape: (...,)
+        points = self.robot.link_points(q, points_per_link=points_per_link)  # (..., n * points_per_link, 2)
+        return self.obstacle.sdf(points).amin(dim=-1) - self.robot.link_radius  # (...)
 
     def collision_labels(self, q: Tensor) -> Tensor:
         """(..., n) -> (...): return binary collision labels(-1 = collision, +1 = free)"""
         return torch.where(self.clearance(q) > 0, 1.0, -1.0)
 
-    def cspace_sdf(self, n: int = 256) -> Tensor:
-        """return n x n ground truth cspace sdf"""
-        grid = cspace_grid(n)
-        gt_col = self.collision_labels(grid)
-        free = (gt_col > 0).numpy()
+    def cspace_sdf(self, resolution: int = 256) -> Tensor:
+        """(res, res) ground-truth C-space SDF on cspace_grid(res), in radians, positive in free space."""
+        labels = self.collision_labels(cspace_grid(resolution))
+        free = (labels > 0).numpy()
         # without both classes, distance_transform_edt returns meaningless numbers instead of failing
         if free.all() or not free.any():
             raise ValueError(
@@ -60,11 +61,14 @@ class Scene:
                 f"but this scene is {'entirely free' if free.all() else 'entirely in collision'}"
             )
 
-        unit = 2 * math.pi / n
-        tiled = np.tile(free, (3, 3))
-
-        to_col = distance_transform_edt(tiled, sampling=unit)
-        to_free = distance_transform_edt(~tiled, sampling=unit)
-        gt_dis = np.where(tiled, to_col - unit / 2, -(to_free - unit / 2))
-        gt_sdf = torch.from_numpy(gt_dis[n : 2 * n, n : 2 * n]).float()
-        return gt_sdf
+        cell_size = 2 * math.pi / resolution
+        # the C-space is a torus: tile 3x3 so that distances across the 0 / 2pi seam are right, then crop the center
+        free_tiled = np.tile(free, (3, 3))
+        distance_to_collision = distance_transform_edt(free_tiled, sampling=cell_size)
+        distance_to_free = distance_transform_edt(~free_tiled, sampling=cell_size)
+        # the EDT measures between cell centers: shift by half a cell to put the boundary between the cells
+        signed_distance = np.where(
+            free_tiled, distance_to_collision - cell_size / 2, -(distance_to_free - cell_size / 2)
+        )
+        center = slice(resolution, 2 * resolution)
+        return torch.from_numpy(signed_distance[center, center]).float()

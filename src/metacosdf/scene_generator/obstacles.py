@@ -28,7 +28,7 @@ class Circle(Obstacle):
 
     def sdf(self, p: Tensor) -> Tensor:
         torchify = torchify_as(p)
-        return (p - torchify((self.center_x, self.center_y))).norm(dim=-1) - self.radius
+        return torch.linalg.vector_norm(p - torchify((self.center_x, self.center_y)), dim=-1) - self.radius
 
 
     @classmethod
@@ -46,14 +46,19 @@ class Box(Obstacle):
 
     def sdf(self, p: Tensor) -> Tensor:
         torchify = torchify_as(p)
-        d = p - torchify((self.center_x, self.center_y))
-        c, s = math.cos(self.angle), math.sin(self.angle)
+        offset = p - torchify((self.center_x, self.center_y))
+        cos_angle, sin_angle = math.cos(self.angle), math.sin(self.angle)
         local = torch.stack(
-            [c * d[..., 0] + s * d[..., 1], -s * d[..., 0] + c * d[..., 1]], dim=-1
-        )  # R^T d
-        q = local.abs() - torchify((self.half_size_x, self.half_size_y))
-        outside = q.clamp(min=0).norm(dim=-1)
-        inside = q.max(dim=-1).values.clamp(max=0)
+            [
+                cos_angle * offset[..., 0] + sin_angle * offset[..., 1],
+                -sin_angle * offset[..., 0] + cos_angle * offset[..., 1],
+            ],
+            dim=-1,
+        )  # R^T offset: p in the box frame
+        # by symmetry only one quadrant matters: the position relative to the box corner
+        corner_offset = local.abs() - torchify((self.half_size_x, self.half_size_y))
+        outside = torch.linalg.vector_norm(corner_offset.clamp(min=0), dim=-1)
+        inside = corner_offset.amax(dim=-1).clamp(max=0)
         return outside + inside
 
     @classmethod
@@ -67,10 +72,10 @@ class Composition(Obstacle):
 
     def sdf(self, p: Tensor) -> Tensor:
         """(..., 2) -> (...): get the minimum of obstacle's SDFs."""
-        d = self.elements[0].sdf(p)
+        distance = self.elements[0].sdf(p)
         for obstacle in self.elements[1:]:
-            d = torch.minimum(d, obstacle.sdf(p))
-        return d
+            distance = torch.minimum(distance, obstacle.sdf(p))
+        return distance
 
     @classmethod
     def config_key(cls) -> str:

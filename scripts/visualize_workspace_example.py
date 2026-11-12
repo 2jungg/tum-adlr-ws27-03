@@ -34,9 +34,9 @@ if __name__ == "__main__":
     # C-space: the ground-truth SDF and the two fields it is built from. All three share the same zero
     # level set, so every solid black line must lie on the dashed ground-truth boundary.
     grid = cspace_grid(256)  # (256, 256, 2)
-    gt = scene.cspace_sdf(256)  # (256, 256), radians
+    ground_truth = scene.cspace_sdf(256)  # (256, 256), radians
     visualizer.plot_overview(
-        gt,
+        ground_truth,
         qs=poses,
         ncols=2,
         fields={

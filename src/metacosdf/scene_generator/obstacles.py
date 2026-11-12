@@ -1,58 +1,77 @@
-import torch
-from torch import Tensor
-from dataclasses import dataclass
-
 import math
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 
-def _t(x, like: Tensor) -> Tensor:
-    """Convert python number/tuple to Tensor which have same dtype, device as input Tensor like"""
-    return torch.as_tensor(x, dtype=like.dtype, device=like.device)
+import torch
+from torch import Tensor
 
+from metacosdf.torch_utility import torchify_as
+
+
+@dataclass(frozen=True)
 class Obstacle(ABC):
     @abstractmethod
     def sdf(self, p: Tensor) -> Tensor:
-        """(..., 2) -> (...): calculate sdf of given tensor p"""
+        """(..., 2) -> (...): calculate sdf of given tensor p."""
 
+    @classmethod
     @abstractmethod
-    def to_dict(self) -> dict:
-        """save metadata of obstacle"""
+    def config_key(cls) -> str:
+        """Name for the obstacle type to be used in config files."""
+
 
 @dataclass(frozen=True)
 class Circle(Obstacle):
-    center: tuple[float, float]
+    center_x: float
+    center_y: float
     radius: float
 
     def sdf(self, p: Tensor) -> Tensor:
-        return (p - _t(self.center, p)).norm(dim=-1) - self.radius
+        torchify = torchify_as(p)
+        return (p - torchify((self.center_x, self.center_y))).norm(dim=-1) - self.radius
 
-    def to_dict(self) -> dict:
-        return {
-            "type": "circle",
-            "center": [float(x) for x in self.center],
-            "radius": float(self.radius),
-        }
+
+    @classmethod
+    def config_key(cls) -> str:
+        return "circle"
 
 
 @dataclass(frozen=True)
 class Box(Obstacle):
-    center: tuple[float, float]
-    half_size: tuple[float, float]
+    center_x: float
+    center_y: float
+    half_size_x: float
+    half_size_y: float
     angle: float = 0.0  # counter-clockwise rotation in radians
 
     def sdf(self, p: Tensor) -> Tensor:
-        d = p - _t(self.center, p)
+        torchify = torchify_as(p)
+        d = p - torchify((self.center_x, self.center_y))
         c, s = math.cos(self.angle), math.sin(self.angle)
-        local = torch.stack([c * d[..., 0] + s * d[..., 1], -s * d[..., 0] + c * d[..., 1]], dim=-1)  # R^T d
-        q = local.abs() - _t(self.half_size, p)
+        local = torch.stack(
+            [c * d[..., 0] + s * d[..., 1], -s * d[..., 0] + c * d[..., 1]], dim=-1
+        )  # R^T d
+        q = local.abs() - torchify((self.half_size_x, self.half_size_y))
         outside = q.clamp(min=0).norm(dim=-1)
         inside = q.max(dim=-1).values.clamp(max=0)
         return outside + inside
 
-    def to_dict(self) -> dict:
-        return {
-            "type": "box",
-            "center": [float(x) for x in self.center],
-            "half_size": [float(x) for x in self.half_size],
-            "angle": float(self.angle),
-        }
+    @classmethod
+    def config_key(cls) -> str:
+        return "box"
+
+
+@dataclass(frozen=True)
+class Composition(Obstacle):
+    elements: list[Obstacle]
+
+    def sdf(self, p: Tensor) -> Tensor:
+        """(..., 2) -> (...): get the minimum of obstacle's SDFs."""
+        d = self.elements[0].sdf(p)
+        for obstacle in self.elements[1:]:
+            d = torch.minimum(d, obstacle.sdf(p))
+        return d
+
+    @classmethod
+    def config_key(cls) -> str:
+        return "composition"

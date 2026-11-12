@@ -1,43 +1,57 @@
+from dataclasses import dataclass, field
+import math
+
 import torch
 from torch import Tensor
-from dataclasses import dataclass
-import math
+
 import numpy as np
 from scipy.ndimage import distance_transform_edt
 
 from metacosdf.scene_generator.obstacles import Obstacle
-from metacosdf.scene_generator.arm import PlanarArm
+from metacosdf.robot import PlanarArm
+
 
 def cspace_grid(n: int = 256) -> Tensor:
     axis = torch.arange(n, dtype=torch.float32) * (2 * math.pi / n)
     q1, q2 = torch.meshgrid(axis, axis, indexing="ij")
     return torch.stack([q1, q2], dim=-1)
 
+
 @dataclass(frozen=True)
 class Scene:
-    obstacles: tuple[Obstacle, ...]
-    bounds: tuple[float, float, float, float] = (-3.0, 3.0, -3.0, 3.0)  # xmin, xmax, ymin, ymax
+    obstacle: Obstacle
+    robot: PlanarArm
 
-    def sdf(self, p: Tensor) -> Tensor:
-        """(..., 2) -> (...): get the minimum of obstacle's SDFs"""
-        d = self.obstacles[0].sdf(p)
-        for obstacle in self.obstacles[1:]:
-            d = torch.minimum(d, obstacle.sdf(p))
-        return d
+    @dataclass(frozen=True)
+    class Bounds:
+        xmin: float = -3.0
+        xmax: float = 3.0
+        ymin: float = -3.0
+        ymax: float = 3.0
 
-    def clearance(self, arm: PlanarArm, q: Tensor, per_link: int = 32) -> Tensor:
+    bounds: Bounds = field(default_factory=Bounds)
+
+    def workspace_grid(self, resolution: int = 300) -> tuple[Tensor, ...]:
+        """xy grid over the scene bounds: X and Y, each (res, res), indexing="ij"."""
+        return torch.meshgrid(
+            torch.linspace(self.bounds.xmin, self.bounds.xmax, resolution),
+            torch.linspace(self.bounds.ymin, self.bounds.ymax, resolution),
+            indexing="ij",
+        )
+
+    def clearance(self, q: Tensor, points_per_link: int = 32) -> Tensor:
         """(..., n) -> (...): return float clearance"""
-        lp = arm.link_points(q, per_link=per_link)  # shape: (..., n * per_link, 2)
-        return self.sdf(lp).amin(dim=-1) - arm.link_radius  # shape: (...,)
+        lp = self.robot.link_points(q, points_per_link=points_per_link)  # shape: (..., n * per_link, 2)
+        return self.obstacle.sdf(lp).amin(dim=-1) - self.robot.link_radius  # shape: (...,)
 
-    def collision_labels(self, arm: PlanarArm, q: Tensor) -> Tensor:
+    def collision_labels(self, q: Tensor) -> Tensor:
         """(..., n) -> (...): return binary collision labels(-1 = collision, +1 = free)"""
-        return torch.where(self.clearance(arm, q) > 0, 1.0, -1.0)
+        return torch.where(self.clearance(q) > 0, 1.0, -1.0)
 
-    def cspace_sdf(self, arm: PlanarArm, n: int = 256) -> Tensor:
+    def cspace_sdf(self, n: int = 256) -> Tensor:
         """return n x n ground truth cspace sdf"""
         grid = cspace_grid(n)
-        gt_col = self.collision_labels(arm, grid)
+        gt_col = self.collision_labels(grid)
         free = (gt_col > 0).numpy()
 
         unit = 2 * math.pi / n

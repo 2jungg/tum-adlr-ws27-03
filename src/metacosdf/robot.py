@@ -10,7 +10,7 @@ from metacosdf.torch_utility import torchify_as
 class PlanarArm:
     """Planar serial arm with revolute joints."""
 
-    link_lengths: list[float] = field(default_factory = lambda: [2.5, 2.0])
+    link_lengths: list[float] = field(default_factory = lambda: [1.0, 1.0])
     base_position_x: float = 0.0
     base_position_y: float = 0.0
     link_radius: float = 0.1

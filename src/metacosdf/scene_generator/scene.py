@@ -53,6 +53,12 @@ class Scene:
         grid = cspace_grid(n)
         gt_col = self.collision_labels(grid)
         free = (gt_col > 0).numpy()
+        # without both classes, distance_transform_edt returns meaningless numbers instead of failing
+        if free.all() or not free.any():
+            raise ValueError(
+                "C-space SDF needs both free and colliding configurations, "
+                f"but this scene is {'entirely free' if free.all() else 'entirely in collision'}"
+            )
 
         unit = 2 * math.pi / n
         tiled = np.tile(free, (3, 3))

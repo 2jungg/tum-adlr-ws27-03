@@ -1,7 +1,4 @@
-"""Datasets of random scenes with labeled configurations: train.pt, val.pt and eval.pt.
-
-The file format is described in docs/dataset.md.
-"""
+"""Random scenes with labeled configurations (format: docs/dataset.md)."""
 
 from dataclasses import dataclass, field
 from typing import Any
@@ -13,7 +10,7 @@ from metacosdf.config_utils import Config
 from metacosdf.scene_generator.generator import SceneGeneratorConfig, create_random_scene
 from metacosdf.scene_generator.scene import SamplingConfig
 
-# every split has its own seed: config.seed + offset
+# seed of a split: config.seed + offset
 SPLIT_SEED_OFFSETS = {"train": 0, "val": 10_000, "eval": 20_000}
 
 
@@ -25,7 +22,7 @@ class DatasetConfig(Config):
     n_val: int = 20
     n_eval: int = 20
     seed: int = 42
-    # a relative path is relative to the repository root
+    # relative to the repository root
     out_dir: str = "data/scenes"
 
     def n_scenes(self, split: str) -> int:
@@ -33,14 +30,10 @@ class DatasetConfig(Config):
 
 
 def build_split(config: DatasetConfig, split: str) -> dict[str, Any]:
-    """
-    Random scenes with labeled configurations for one split ("train", "val" or "eval").
-    Only the eval split also stores each scene (Scene.to_dict()),
-    so that its ground truth can be computed.
-    """
+    """Only eval stores the scenes (Scene.to_dict()), as only eval needs ground truth."""
     seed = config.seed + SPLIT_SEED_OFFSETS[split]
     rng = np.random.default_rng(seed)  # obstacles
-    torch.manual_seed(seed)  # configurations: the sampling uses torch's global generator
+    torch.manual_seed(seed)  # configurations
     scenes = []
     for _ in range(config.n_scenes(split)):
         scene = create_random_scene(config.generator, rng)

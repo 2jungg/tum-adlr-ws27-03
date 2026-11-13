@@ -1,8 +1,4 @@
-"""Fitting a field to the collision labels of one scene.
-
-The loss is the one of the Co-SDF MLP baseline (Sec. IV-A1): MSE between d(q) and the labels
-in {-1, +1}, plus an Eikonal term. No Lipschitz constraint, no distance labels.
-"""
+"""Fitting a field to collision labels, with the loss of the Co-SDF MLP baseline."""
 
 from dataclasses import dataclass
 
@@ -17,23 +13,22 @@ class TrainingConfig(Config):
     epochs: int = 100
     batch_size: int = 200
     learning_rate: float = 1e-3
-    # weight of the Eikonal term mean((|grad_q d(q)| - 1)^2); 0 turns it off
+    # 0 turns the Eikonal term off
     eikonal_weight: float = 0.1
-    # seeds the network initialization and the order of the batches
+    # network initialization and batch order
     seed: int = 0
-    # "cpu" or "cuda"
     device: str = "cpu"
-    # print the loss every log_every epochs; 0 prints nothing
+    # 0: no printing
     log_every: int = 10
 
 
 def field_loss(field: nn.Module, q: Tensor, labels: Tensor, eikonal_weight: float) -> Tensor:
-    """MSE between d(q) and the labels, plus eikonal_weight * mean((|grad_q d(q)| - 1)^2)."""
+    """MSE to the labels + eikonal_weight * mean((|grad_q d(q)| - 1)^2)"""
     if eikonal_weight == 0:
         return ((field(q) - labels) ** 2).mean()
     q = q.detach().requires_grad_(True)
     distance = field(q)
-    # create_graph: the Eikonal term itself is differentiated in the backward pass
+    # create_graph: the Eikonal term is differentiated too
     (gradient,) = torch.autograd.grad(distance.sum(), q, create_graph=True)
     eikonal = ((torch.linalg.vector_norm(gradient, dim=-1) - 1) ** 2).mean()
     return ((distance - labels) ** 2).mean() + eikonal_weight * eikonal
@@ -42,10 +37,7 @@ def field_loss(field: nn.Module, q: Tensor, labels: Tensor, eikonal_weight: floa
 def fit_field(
     field: nn.Module, q: Tensor, labels: Tensor, config: TrainingConfig
 ) -> list[float]:
-    """
-    Train `field` with Adam on the configurations q (N, n) and their labels (N,) in {-1, +1}.
-    Returns the mean loss of every epoch.
-    """
+    """q (N, n), labels (N,) in {-1, +1} -> mean loss of every epoch"""
     device = torch.device(config.device)
     field.to(device)
     q, labels = q.to(device), labels.to(device)

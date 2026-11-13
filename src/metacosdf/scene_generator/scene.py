@@ -23,16 +23,14 @@ def cspace_grid(resolution: int = 256) -> Tensor:
 
 @dataclass
 class SamplingConfig(Config):
-    """How labeled configurations are sampled in C-space (Co-SDF, Sec. III-B)."""
+    """Co-SDF, Sec. III-B"""
 
     n_samples: int = 5000
-    # add samples close to the collision boundary
     boundary_sampling: bool = True
-    # fraction of the samples taken close to the boundary
+    # fraction of samples near the boundary
     boundary_ratio: float = 0.5
-    # std of the Gaussian perturbation that makes the boundary pairs, in radians
+    # perturbation std of the boundary pairs, rad
     sigma: float = 0.15
-    # bisection steps that move both ends of a boundary pair towards the boundary
     bisection_steps: int = 3
 
 
@@ -105,31 +103,26 @@ class Scene(Config):
         return torch.from_numpy(signed_distance[center, center]).float()
 
     def sample_configurations(self, config: SamplingConfig) -> tuple[Tensor, Tensor]:
-        """
-        Jacobian-weighted samples, plus samples close to the collision boundary if enabled
-        -> shuffled q (N, n) in [0, 2pi) and their collision labels y (N,)
-        """
+        """Jacobian-weighted + boundary samples -> q (N, n) in [0, 2pi), labels y (N,)"""
         n_boundary = int(config.n_samples * config.boundary_ratio)
         if not config.boundary_sampling:
             n_boundary = 0
         q_boundary = torch.empty(0, self.robot.dof)
         if n_boundary > 0:
-            # pairs: a weighted sample and a Gaussian perturbation of it
+            # pairs of a weighted sample and its perturbation, kept if they cross the boundary
             q_start = self.robot.weighted_sample(max(5 * n_boundary, 1000))
             q_end = q_start + config.sigma * torch.randn_like(q_start)
-            # keep the pairs whose labels differ: the segment between them crosses the boundary
             y_start = self.collision_labels(q_start)
             crossing = y_start != self.collision_labels(q_end)
             q_start, q_end, y_start = q_start[crossing], q_end[crossing], y_start[crossing]
-            # bisection: both ends move towards the boundary and keep their labels
+            # bisection: both ends move towards the boundary, keeping their labels
             for _ in range(config.bisection_steps):
                 q_middle = 0.5 * (q_start + q_end)
                 # (pairs, 1)
                 middle_like_start = (self.collision_labels(q_middle) == y_start)[:, None]
                 q_start = torch.where(middle_like_start, q_middle, q_start)
                 q_end = torch.where(middle_like_start, q_end, q_middle)
-            # (2 * pairs, n): both ends of each pair next to each other, so that truncating
-            # keeps the two sides of the boundary balanced
+            # (2 * pairs, n): pairs stay together, so the cut keeps both sides of the boundary
             q_boundary = torch.stack([q_start, q_end], dim=1).flatten(0, 1)[:n_boundary]
 
         q_weighted = self.robot.weighted_sample(config.n_samples - len(q_boundary))

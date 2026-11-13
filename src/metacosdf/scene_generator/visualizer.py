@@ -1,10 +1,4 @@
-"""Plots of a 2D workspace scene and of scalar fields on its C-space.
-
-Every plot method takes an `ax` (or creates one) and returns it,
-so panels can be combined freely.
-A C-space field is passed as its values on `cspace_grid(res)`: a (res, res) tensor with
-values[i, j] = field(q1_i, q2_j).
-"""
+"""Workspace and C-space plots. C-space fields are passed as values on cspace_grid(res)."""
 
 import math
 from dataclasses import dataclass
@@ -27,18 +21,12 @@ LABEL_BOX = dict(boxstyle="round,pad=0.15", facecolor="white", edgecolor="none",
 
 
 def _diverging_norm(values: np.ndarray) -> TwoSlopeNorm:
-    """
-    Color normalization centered at 0. TwoSlopeNorm needs vmin < 0 < vmax,
-    so the limits are padded.
-    """
+    """centered at 0; padded because TwoSlopeNorm needs vmin < 0 < vmax"""
     return TwoSlopeNorm(0.0, min(float(values.min()), -1e-6), max(float(values.max()), 1e-6))
 
 
 def _add_colorbar(ax: plt.Axes, mappable, label: str | None = None):
-    """
-    Colorbar with ticks on both sides of 0. TwoSlopeNorm stretches each side separately,
-    so matplotlib's default ticks can leave the shorter side unlabeled.
-    """
+    """ticks on both sides of 0, the default ticks can miss the shorter side"""
     vmin, vmax = mappable.norm.vmin, mappable.norm.vmax
     span = vmax - vmin
     ticks = [0.0]
@@ -54,16 +42,13 @@ def _add_colorbar(ax: plt.Axes, mappable, label: str | None = None):
 def _draw_zero_level(
     ax: plt.Axes, horizontal: np.ndarray, vertical: np.ndarray, values: np.ndarray, **kwargs
 ) -> None:
-    """
-    Zero contour of values (res, res) on a grid, drawn only if they change sign
-    (matplotlib warns otherwise).
-    """
+    """only if the values change sign, matplotlib warns otherwise"""
     if values.min() < 0.0 < values.max():
         ax.contour(horizontal, vertical, values, levels=[0.0], **kwargs)
 
 
 def _format_cspace_axes(ax: plt.Axes, title: str) -> None:
-    """The C-space [0, 2pi)^2: q1 horizontal, q2 vertical, ticks at 0, pi and 2pi."""
+    """[0, 2pi)^2, q1 horizontal"""
     ticks = [0.0, math.pi, TWO_PI]
     ax.set(
         xlim=(0.0, TWO_PI),
@@ -81,13 +66,7 @@ def _format_cspace_axes(ax: plt.Axes, title: str) -> None:
 
 @dataclass
 class SceneVisualizer(Config):
-    """
-    Plots for one scene:
-    its workspace (obstacles, arm, workspace SDF) and fields on its C-space.
-
-    Poses keep the same color and number in every panel:
-    an arm in the workspace, a marker in C-space.
-    """
+    """Poses keep their color and number in every panel."""
 
     scene: Scene
     field_color_map: str = "RdBu_r"
@@ -102,10 +81,7 @@ class SceneVisualizer(Config):
     def _draw_arm(
         self, ax: plt.Axes, q: Tensor, color: str, text: str, text_color: str
     ) -> None:
-        """
-        One pose q (n,): the links with a black outline, base and joints as dots,
-        the text at the tip.
-        """
+        """q (n,), text at the tip"""
         p = to_numpy(self.scene.robot.joint_positions(q))  # (n+1, 2): base, joints, tip
         outline = [Stroke(linewidth=7, foreground="black"), Normal()]
         ax.plot(
@@ -139,11 +115,7 @@ class SceneVisualizer(Config):
         resolution: int = 300,
         title: str = "",
     ) -> plt.Axes:
-        """
-        Obstacles (sdf < 0), or the workspace SDF as a heatmap with iso-lines every 0.5,
-        plus the arm's reach (dashed) and the poses qs (n,) or (k, n),
-        labeled free or collision.
-        """
+        """obstacles or, with show_sdf, the workspace SDF; reach dashed; qs (n,) or (k, n)"""
         if ax is None:
             _, ax = plt.subplots(figsize=(5.5, 5.2))
 
@@ -224,22 +196,13 @@ class SceneVisualizer(Config):
         title: str = "",
         colorbar_label: str | None = None,
     ) -> plt.Axes:
-        """
-        A C-space field from its values (res, res) on cspace_grid(res);
-        q1 is horizontal, q2 vertical.
-
-        Solid black: the field's own zero level set.
-        Dashed: the zero level set of `boundary` (res, res),
-        e.g. the ground truth, for comparison.
-        qs (n,) or (k, n): numbered markers in the pose colors.
-        """
+        """values (res, res); the zero level of boundary (e.g. ground truth) is dashed"""
         if ax is None:
             _, ax = plt.subplots(figsize=(5.5, 5.2))
 
         grid = cspace_grid(values.shape[0])  # (res, res, 2)
         grid_q1, grid_q2 = to_numpy(grid[..., 0]), to_numpy(grid[..., 1])
         field_values = to_numpy(values)
-        # explicit coordinates: no transpose and no origin flip, unlike imshow
         mesh = ax.pcolormesh(
             grid_q1,
             grid_q2,
@@ -261,7 +224,6 @@ class SceneVisualizer(Config):
             )
 
         if qs is not None:
-            # wrap into [0, 2pi)
             for index, q in enumerate(torch.remainder(torch.atleast_2d(qs), TWO_PI)):
                 q1, q2 = q.tolist()
                 ax.plot(q1, q2, "o", color=self._pose_color(index), mec="black", mew=1.2, ms=9)
@@ -287,11 +249,7 @@ class SceneVisualizer(Config):
         ground_truth: Tensor | None = None,
         title: str | None = None,
     ) -> plt.Axes:
-        """
-        Sampled configurations q_samples (N, n) as dots, in the free and collision colors.
-        Labels y_samples (N,) are computed if not given.
-        ground_truth (res, res): its C-obstacles are shaded, its boundary drawn in black.
-        """
+        """q_samples (N, n), labels computed if missing; ground_truth shades the C-obstacles"""
         if ax is None:
             _, ax = plt.subplots(figsize=(5.5, 5.2))
 
@@ -341,16 +299,7 @@ class SceneVisualizer(Config):
         ncols: int = 3,
         save_path: str | Path | None = None,
     ) -> plt.Figure:
-        """
-        Workspace | ground-truth C-space SDF | one panel per field
-
-        ground_truth: (res, res) from `scene.cspace_sdf(res)`.
-        fields: name -> (res, res) values on cspace_grid(res),
-        e.g. a model evaluated on the grid;
-        each field panel shows the ground-truth boundary dashed.
-        The numbered poses appear in every panel.
-        The figure is also saved if `save_path` is given.
-        """
+        """workspace | ground truth | one panel per field, ground-truth boundary dashed"""
         fields = fields or {}
         n_panels = 2 + len(fields)
         ncols = min(ncols, n_panels)

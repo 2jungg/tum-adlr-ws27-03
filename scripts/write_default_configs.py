@@ -2,10 +2,12 @@ from pathlib import Path
 
 from metacosdf.config_utils import save_config
 from metacosdf.dataset import DatasetConfig
+from metacosdf.models import MLPConfig
 from metacosdf.robot import PlanarArm
 from metacosdf.scene_generator.obstacles import Circle
 from metacosdf.scene_generator.scene import Scene
 from metacosdf.scene_generator.visualizer import SceneVisualizer
+from metacosdf.training import TrainingConfig
 
 if __name__ == "__main__":
     configs_dir = Path(__file__).parent.parent / "configs"
@@ -20,3 +22,8 @@ if __name__ == "__main__":
     save_config(config_dict, configs_dir / "default_scene.yaml")
 
     save_config({"dataset": DatasetConfig().to_dict()}, configs_dir / "dataset.yaml")
+
+    save_config(
+        {"model": MLPConfig().to_dict(), "training": TrainingConfig().to_dict()},
+        configs_dir / "fit_mlp.yaml",
+    )

@@ -1,0 +1,27 @@
+dataset:
+  generator:
+    robot:
+      link_lengths:
+      - 1.0
+      - 1.0
+      base_position_x: 0.0
+      base_position_y: 0.0
+      link_radius: 0.1
+    bounds:
+      xmin: -3.0
+      xmax: 3.0
+      ymin: -3.0
+      ymax: 3.0
+    max_obstacles: 4
+    min_base_clearance: 0.2
+  sampling:
+    n_samples: 5000
+    boundary_sampling: true
+    boundary_ratio: 0.5
+    sigma: 0.15
+    bisection_steps: 3
+  n_train: 100
+  n_val: 20
+  n_eval: 20
+  seed: 42
+  out_dir: data/scenes

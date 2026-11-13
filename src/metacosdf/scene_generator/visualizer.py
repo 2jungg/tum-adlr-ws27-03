@@ -62,6 +62,23 @@ def _draw_zero_level(
         ax.contour(horizontal, vertical, values, levels=[0.0], **kwargs)
 
 
+def _format_cspace_axes(ax: plt.Axes, title: str) -> None:
+    """The C-space [0, 2pi)^2: q1 horizontal, q2 vertical, ticks at 0, pi and 2pi."""
+    ticks = [0.0, math.pi, TWO_PI]
+    ax.set(
+        xlim=(0.0, TWO_PI),
+        ylim=(0.0, TWO_PI),
+        xticks=ticks,
+        yticks=ticks,
+        xticklabels=["0", "π", "2π"],
+        yticklabels=["0", "π", "2π"],
+        xlabel=r"$q_1$ [rad]",
+        ylabel=r"$q_2$ [rad]",
+        title=title,
+        aspect="equal",
+    )
+
+
 @dataclass
 class SceneVisualizer(Config):
     """
@@ -258,18 +275,62 @@ class SceneVisualizer(Config):
                     bbox=LABEL_BOX,
                 )
 
-        ticks = [0.0, math.pi, TWO_PI]
-        ax.set(
-            xticks=ticks,
-            yticks=ticks,
-            xticklabels=["0", "π", "2π"],
-            yticklabels=["0", "π", "2π"],
-            xlabel=r"$q_1$ [rad]",
-            ylabel=r"$q_2$ [rad]",
-            title=title,
-            aspect="equal",
-        )
+        _format_cspace_axes(ax, title)
         _add_colorbar(ax, mesh, label=colorbar_label)
+        return ax
+
+    def plot_samples(
+        self,
+        q_samples: Tensor,
+        y_samples: Tensor | None = None,
+        ax: plt.Axes | None = None,
+        ground_truth: Tensor | None = None,
+        title: str | None = None,
+    ) -> plt.Axes:
+        """
+        Sampled configurations q_samples (N, n) as dots, in the free and collision colors.
+        Labels y_samples (N,) are computed if not given.
+        ground_truth (res, res): its C-obstacles are shaded, its boundary drawn in black.
+        """
+        if ax is None:
+            _, ax = plt.subplots(figsize=(5.5, 5.2))
+
+        if ground_truth is not None:
+            grid = cspace_grid(ground_truth.shape[0])  # (res, res, 2)
+            grid_q1, grid_q2 = to_numpy(grid[..., 0]), to_numpy(grid[..., 1])
+            values = to_numpy(ground_truth)
+            if values.min() < 0.0:
+                ax.contourf(
+                    grid_q1,
+                    grid_q2,
+                    values,
+                    levels=[values.min() - 1.0, 0.0],
+                    colors=[self.obstacle_color],
+                    alpha=0.2,
+                )
+            _draw_zero_level(ax, grid_q1, grid_q2, values, colors="black", linewidths=1.2)
+
+        if y_samples is None:
+            y_samples = self.scene.collision_labels(q_samples)
+        q_wrapped = to_numpy(torch.remainder(q_samples, TWO_PI))  # (N, n)
+        free = to_numpy(y_samples) > 0  # (N,)
+        for mask, color, name in [
+            (free, self.free_color, "free"),
+            (~free, self.collision_color, "collision"),
+        ]:
+            ax.scatter(
+                q_wrapped[mask, 0],
+                q_wrapped[mask, 1],
+                s=4,
+                color=color,
+                alpha=0.5,
+                label=f"{name} ({mask.sum()})",
+            )
+        ax.legend(loc="upper right", fontsize=8, markerscale=2.5, framealpha=0.85)
+
+        if title is None:
+            title = f"sampled configurations (N={len(q_samples)})"
+        _format_cspace_axes(ax, title)
         return ax
 
     def plot_overview(

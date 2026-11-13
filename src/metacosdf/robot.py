@@ -1,3 +1,4 @@
+import math
 from dataclasses import dataclass, field
 
 import torch
@@ -67,3 +68,24 @@ class PlanarArm(Config):
         # (..., n, points_per_link, 2)
         link_points = start + fractions * (end - start)
         return link_points.flatten(-3, -2)
+
+    def jacobian_volume(self, q: Tensor) -> Tensor:
+        """
+        (B, n) -> (B,): sqrt(det(J^T J)) with J = d embedding / dq,
+        the Co-SDF sampling weight
+        """
+        # (B, 2n, n)
+        jacobian = torch.func.vmap(torch.func.jacfwd(self.embedding))(q)
+        # (B, n, n)
+        gram = jacobian.mT @ jacobian
+        return torch.linalg.det(gram).clamp(min=0.0).sqrt()
+
+    def weighted_sample(self, n_samples: int, oversample: int = 5) -> Tensor:
+        """
+        (n_samples, n) configurations in [0, 2pi), drawn from oversample * n_samples uniform
+        candidates with probabilities proportional to jacobian_volume
+        """
+        # (oversample * n_samples, n)
+        candidates = torch.rand(n_samples * oversample, self.dof) * (2 * math.pi)
+        weights = self.jacobian_volume(candidates)
+        return candidates[torch.multinomial(weights, n_samples, replacement=False)]

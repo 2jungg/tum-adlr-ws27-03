@@ -10,5 +10,9 @@ build/
 dist/
 *.egg-info/
 
+# datasets and checkpoints
+data/
+*.pt
+
 # paper folder
 paper/

@@ -6,6 +6,7 @@ import torch
 from scipy.ndimage import distance_transform_edt
 from torch import Tensor
 
+from metacosdf.config_utils import Config
 from metacosdf.robot import PlanarArm
 from metacosdf.scene_generator.obstacles import Obstacle
 
@@ -21,7 +22,7 @@ def cspace_grid(resolution: int = 256) -> Tensor:
 
 
 @dataclass
-class Scene:
+class Scene(Config):
     obstacle: Obstacle
     robot: PlanarArm
 

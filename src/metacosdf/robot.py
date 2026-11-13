@@ -3,11 +3,12 @@ from dataclasses import dataclass, field
 import torch
 from torch import Tensor
 
-from metacosdf.torch_utility import torchify_as
+from metacosdf.config_utils import Config
+from metacosdf.tensor_utils import torchify_as
 
 
 @dataclass
-class PlanarArm:
+class PlanarArm(Config):
     """Planar serial arm with revolute joints."""
 
     link_lengths: list[float] = field(default_factory=lambda: [1.0, 1.0])

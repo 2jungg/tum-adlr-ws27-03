@@ -17,15 +17,13 @@ from matplotlib.colors import TwoSlopeNorm
 from matplotlib.patheffects import Normal, Stroke
 from torch import Tensor
 
+from metacosdf.config_utils import Config
 from metacosdf.scene_generator.scene import Scene, cspace_grid
+from metacosdf.tensor_utils import to_numpy
 
 TWO_PI = 2.0 * math.pi
 # readable on any background
 LABEL_BOX = dict(boxstyle="round,pad=0.15", facecolor="white", edgecolor="none", alpha=0.75)
-
-
-def _to_numpy(tensor: Tensor) -> np.ndarray:
-    return tensor.detach().cpu().numpy()
 
 
 def _diverging_norm(values: np.ndarray) -> TwoSlopeNorm:
@@ -65,7 +63,7 @@ def _draw_zero_level(
 
 
 @dataclass
-class SceneVisualizer:
+class SceneVisualizer(Config):
     """
     Plots for one scene:
     its workspace (obstacles, arm, workspace SDF) and fields on its C-space.
@@ -91,7 +89,7 @@ class SceneVisualizer:
         One pose q (n,): the links with a black outline, base and joints as dots,
         the text at the tip.
         """
-        p = _to_numpy(self.scene.robot.joint_positions(q))  # (n+1, 2): base, joints, tip
+        p = to_numpy(self.scene.robot.joint_positions(q))  # (n+1, 2): base, joints, tip
         outline = [Stroke(linewidth=7, foreground="black"), Normal()]
         ax.plot(
             p[:, 0],
@@ -133,8 +131,8 @@ class SceneVisualizer:
             _, ax = plt.subplots(figsize=(5.5, 5.2))
 
         grid = self.scene.workspace_grid(resolution)  # (res, res, 2)
-        sdf_values = _to_numpy(self.scene.obstacle.sdf(grid))  # (res, res)
-        grid_x, grid_y = _to_numpy(grid[..., 0]), _to_numpy(grid[..., 1])
+        sdf_values = to_numpy(self.scene.obstacle.sdf(grid))  # (res, res)
+        grid_x, grid_y = to_numpy(grid[..., 0]), to_numpy(grid[..., 1])
 
         if show_sdf:
             mesh = ax.pcolormesh(
@@ -222,8 +220,8 @@ class SceneVisualizer:
             _, ax = plt.subplots(figsize=(5.5, 5.2))
 
         grid = cspace_grid(values.shape[0])  # (res, res, 2)
-        grid_q1, grid_q2 = _to_numpy(grid[..., 0]), _to_numpy(grid[..., 1])
-        field_values = _to_numpy(values)
+        grid_q1, grid_q2 = to_numpy(grid[..., 0]), to_numpy(grid[..., 1])
+        field_values = to_numpy(values)
         # explicit coordinates: no transpose and no origin flip, unlike imshow
         mesh = ax.pcolormesh(
             grid_q1,
@@ -239,7 +237,7 @@ class SceneVisualizer:
                 ax,
                 grid_q1,
                 grid_q2,
-                _to_numpy(boundary),
+                to_numpy(boundary),
                 colors=self.free_color,
                 linewidths=1.5,
                 linestyles="--",

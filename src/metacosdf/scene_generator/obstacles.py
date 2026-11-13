@@ -5,11 +5,12 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
-from metacosdf.torch_utility import torchify_as
+from metacosdf.config_utils import Config
+from metacosdf.tensor_utils import torchify_as
 
 
 @dataclass
-class Obstacle(ABC):
+class Obstacle(Config, ABC):
     @abstractmethod
     def sdf(self, p: Tensor) -> Tensor:
         """(..., 2) -> (...): calculate sdf of given tensor p."""

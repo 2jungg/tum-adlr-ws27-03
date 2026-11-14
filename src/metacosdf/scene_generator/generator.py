@@ -1,52 +1,56 @@
-import torch
-import numpy as np
-from metacosdf.scene_generator.arm import PlanarArm
-from metacosdf.scene_generator.scene import Scene
-from metacosdf.scene_generator.obstacles import Obstacle, Circle, Box
+"""Random scenes of circles and boxes within the arm's reach."""
 
 import math
+from dataclasses import dataclass, field
 
-def create_random_obs(
-    arm: PlanarArm,
-    min_base_clearance: float = 0.2,
-    rng: np.random.Generator | None = None,
-) -> Obstacle:
-    rng = rng or np.random.default_rng()
-    theta = rng.uniform(0, 2 * math.pi)
-    r_min = min_base_clearance + arm.link_radius
-    r_max = arm.reach
-    r = np.sqrt(rng.uniform(r_min**2, r_max**2))    # uniform randomness regarding polar coordinate system
-    cx = arm.base[0] + math.cos(theta) * r
-    cy = arm.base[1] + math.sin(theta) * r
+import numpy as np
+import torch
 
-    if rng.uniform(0.0, 1.0) > 0.5:   # Circle obstacle
-        radius = float(rng.uniform(0.1, 0.5))
-        return Circle((float(cx), float(cy)), radius)
-    else:
-        hx, hy = float(rng.uniform(0.1, 0.5)), float(rng.uniform(0.1, 0.5))
-        angle = float(rng.uniform(0, math.pi))
-        return Box((float(cx), float(cy)), (hx, hy), angle)
+from metacosdf.config_utils import Config
+from metacosdf.robot import PlanarArm
+from metacosdf.scene_generator.obstacles import Box, Circle, Composition, Obstacle
+from metacosdf.scene_generator.scene import Scene
 
-def create_random_scene(
-    arm: PlanarArm,
-    bounds: tuple[float, float, float, float] = (-3.0, 3.0, -3.0, 3.0),
-    max_obs: int = 4,
-    min_base_clearance: float = 0.2,
-    rng: np.random.Generator | None = None,
-) -> Scene:
-    rng = rng or np.random.default_rng()
-    num_obs = rng.integers(1, max_obs + 1)
-    cnt = 0
-    obstacles = []
-    base_tensor = torch.tensor(arm.base, dtype=torch.float32)
+
+@dataclass
+class SceneGeneratorConfig(Config):
+    robot: PlanarArm = field(default_factory=PlanarArm)
+    bounds: Scene.Bounds = field(default_factory=Scene.Bounds)
+    max_obstacles: int = 4
+    # distance from the base, on top of the link radius
+    min_base_clearance: float = 0.2
+
+
+def create_random_obstacle(config: SceneGeneratorConfig, rng: np.random.Generator) -> Obstacle:
+    """circle or box, centered uniformly by area between the base clearance and the reach"""
+    robot = config.robot
+    angle = float(rng.uniform(0, 2 * math.pi))
+    min_distance = config.min_base_clearance + robot.link_radius
+    distance = math.sqrt(float(rng.uniform(min_distance**2, robot.reach**2)))
+    center_x = robot.base_position_x + distance * math.cos(angle)
+    center_y = robot.base_position_y + distance * math.sin(angle)
+    # python floats: numpy floats break YAML and weights-only torch.load
+    if rng.uniform() > 0.5:
+        return Circle(center_x=center_x, center_y=center_y, radius=float(rng.uniform(0.1, 0.5)))
+    return Box(
+        center_x=center_x,
+        center_y=center_y,
+        half_size_x=float(rng.uniform(0.1, 0.5)),
+        half_size_y=float(rng.uniform(0.1, 0.5)),
+        angle=float(rng.uniform(0, math.pi)),
+    )
+
+
+def create_random_scene(config: SceneGeneratorConfig, rng: np.random.Generator) -> Scene:
+    """1 to max_obstacles obstacles, rejecting the ones too close to the base"""
+    robot = config.robot
+    n_obstacles = int(rng.integers(1, config.max_obstacles + 1))
+    base = torch.tensor([robot.base_position_x, robot.base_position_y])
+    obstacles: list[Obstacle] = []
     for _ in range(100):
-        obs = create_random_obs(arm, min_base_clearance=min_base_clearance, rng=rng)
-        if obs.sdf(base_tensor) > arm.link_radius + min_base_clearance:
-            cnt += 1
-            obstacles.append(obs)
-            if cnt == num_obs:
+        obstacle = create_random_obstacle(config, rng)
+        if obstacle.sdf(base) > robot.link_radius + config.min_base_clearance:
+            obstacles.append(obstacle)
+            if len(obstacles) == n_obstacles:
                 break
-
-    # We can also consider to check collision label ratio (not too low and high)
-
-    return Scene(tuple(obstacles), bounds)
+    return Scene(obstacle=Composition(elements=obstacles), robot=robot, bounds=config.bounds)

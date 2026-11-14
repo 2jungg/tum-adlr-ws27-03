@@ -1,54 +1,35 @@
-"""Preview a randomly generated 2-DoF scene in workspace and C-space."""
+"""Preview a random scene; --sample adds a panel with sampled configurations."""
 
 import argparse
 import math
+
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
 
-from metacosdf.scene_generator.arm import PlanarArm
-from metacosdf.scene_generator.generator import create_random_scene
+from metacosdf.scene_generator.generator import SceneGeneratorConfig, create_random_scene
+from metacosdf.scene_generator.scene import SamplingConfig
 from metacosdf.scene_generator.visualizer import SceneVisualizer
 
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Preview a randomly generated 2-DoF scene.")
-    parser.add_argument(
-        "--sample",
-        action="store_true",
-        help="Sample configurations and visualize them in a 3rd subplot.",
-    )
-    parser.add_argument(
-        "--bisection_steps",
-        type=int,
-        default=3,
-        help="Iterative steps for boundary sampling (default: 3)",
-    )
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--sample", action="store_true")
+    parser.add_argument("--bisection_steps", type=int, default=3)
     args = parser.parse_args()
 
-    arm = PlanarArm()
-    scene = create_random_scene(arm)
+    scene = create_random_scene(SceneGeneratorConfig(), np.random.default_rng())
+    print(scene.obstacle)
+    qs = torch.rand(4, scene.robot.dof) * (2.0 * math.pi)
+    ground_truth = scene.cspace_sdf()
+    visualizer = SceneVisualizer(scene=scene)
 
-    print(f"Generated scene with {len(scene.obstacles)} obstacle(s):")
-    for idx, obs in enumerate(scene.obstacles, start=1):
-        print(f"  {idx}. {obs.to_dict()}")
-
-    # Sample a few random poses in [0, 2pi)^2 to inspect collision coloring
-    qs = torch.rand(4, arm.dof) * (2.0 * math.pi)
-
-    # Sample C-space configurations (Jacobian-weighted + boundary-densified)
-    q_samples, y_samples = None, None
+    n_panels = 3 if args.sample else 2
+    fig, axes = plt.subplots(1, n_panels, figsize=(5.5 * n_panels, 5.0))
+    visualizer.plot_workspace(axes[0], qs=qs, title="workspace")
+    visualizer.plot_cspace(ground_truth, axes[1], qs=qs, title="ground-truth C-space SDF [rad]")
     if args.sample:
-        q_samples, y_samples = scene.sample_configurations(
-            arm=arm,
-            n_samples=5000,
-            use_boundary_sampling=True,
-            boundary_ratio=0.5,
-            sigma=0.15,
-            bisection_steps=args.bisection_steps,
-        )
-
-    visualizer = SceneVisualizer(scene, arm)
-    visualizer.show(qs=qs, q_samples=q_samples, y_samples=y_samples)
-
-
-if __name__ == "__main__":
-    main()
+        sampling = SamplingConfig(bisection_steps=args.bisection_steps)
+        q_samples, y_samples = scene.sample_configurations(sampling)
+        visualizer.plot_samples(q_samples, y_samples, axes[2], ground_truth=ground_truth)
+    fig.tight_layout()
+    plt.show()

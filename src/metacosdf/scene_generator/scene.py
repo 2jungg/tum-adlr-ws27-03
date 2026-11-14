@@ -1,94 +1,131 @@
-import torch
-from torch import Tensor
-from dataclasses import dataclass
 import math
+from dataclasses import dataclass, field
+
 import numpy as np
+import torch
 from scipy.ndimage import distance_transform_edt
+from torch import Tensor
 
+from metacosdf.config_utils import Config
+from metacosdf.robot import PlanarArm
 from metacosdf.scene_generator.obstacles import Obstacle
-from metacosdf.scene_generator.arm import PlanarArm
 
-def cspace_grid(n: int = 256) -> Tensor:
-    axis = torch.arange(n, dtype=torch.float32) * (2 * math.pi / n)
+
+def cspace_grid(resolution: int = 256) -> Tensor:
+    """
+    (res, res, 2) grid of configurations,
+    "ij" indexing: grid[i, j] = (q1_i, q2_j), q_k = k * 2pi / res.
+    """
+    axis = torch.arange(resolution, dtype=torch.float32) * (2 * math.pi / resolution)
     q1, q2 = torch.meshgrid(axis, axis, indexing="ij")
     return torch.stack([q1, q2], dim=-1)
 
-@dataclass(frozen=True)
-class Scene:
-    obstacles: tuple[Obstacle, ...]
-    bounds: tuple[float, float, float, float] = (-3.0, 3.0, -3.0, 3.0)  # xmin, xmax, ymin, ymax
 
-    def sdf(self, p: Tensor) -> Tensor:
-        """(..., 2) -> (...): get the minimum of obstacle's SDFs"""
-        d = self.obstacles[0].sdf(p)
-        for obstacle in self.obstacles[1:]:
-            d = torch.minimum(d, obstacle.sdf(p))
-        return d
+@dataclass
+class SamplingConfig(Config):
+    """Co-SDF, Sec. III-B"""
 
-    def clearance(self, arm: PlanarArm, q: Tensor, per_link: int = 32) -> Tensor:
+    n_samples: int = 5000
+    boundary_sampling: bool = True
+    # fraction of samples near the boundary
+    boundary_ratio: float = 0.5
+    # perturbation std of the boundary pairs, rad
+    sigma: float = 0.15
+    bisection_steps: int = 3
+
+
+@dataclass
+class Scene(Config):
+    obstacle: Obstacle
+    robot: PlanarArm
+
+    @dataclass
+    class Bounds:
+        xmin: float = -3.0
+        xmax: float = 3.0
+        ymin: float = -3.0
+        ymax: float = 3.0
+
+    bounds: Bounds = field(default_factory=Bounds)
+
+    def workspace_grid(self, resolution: int = 300) -> Tensor:
+        """
+        (res, res, 2) grid of points over the scene bounds,
+        "ij" indexing: grid[i, j] = (x_i, y_j).
+        """
+        grid_x, grid_y = torch.meshgrid(
+            torch.linspace(self.bounds.xmin, self.bounds.xmax, resolution),
+            torch.linspace(self.bounds.ymin, self.bounds.ymax, resolution),
+            indexing="ij",
+        )
+        return torch.stack([grid_x, grid_y], dim=-1)
+
+    def clearance(self, q: Tensor, points_per_link: int = 32) -> Tensor:
         """(..., n) -> (...): return float clearance"""
-        lp = arm.link_points(q, per_link=per_link)  # shape: (..., n * per_link, 2)
-        return self.sdf(lp).amin(dim=-1) - arm.link_radius  # shape: (...,)
+        points = self.robot.link_points(
+            q, points_per_link=points_per_link
+        )  # (..., n * points_per_link, 2)
+        return self.obstacle.sdf(points).amin(dim=-1) - self.robot.link_radius  # (...)
 
-    def collision_labels(self, arm: PlanarArm, q: Tensor) -> Tensor:
+    def collision_labels(self, q: Tensor) -> Tensor:
         """(..., n) -> (...): return binary collision labels(-1 = collision, +1 = free)"""
-        return torch.where(self.clearance(arm, q) > 0, 1.0, -1.0)
+        return torch.where(self.clearance(q) > 0, 1.0, -1.0)
 
-    def cspace_sdf(self, arm: PlanarArm, n: int = 256) -> Tensor:
-        """return n x n ground truth cspace sdf"""
-        grid = cspace_grid(n)
-        gt_col = self.collision_labels(arm, grid)
-        free = (gt_col > 0).numpy()
+    def cspace_sdf(self, resolution: int = 256) -> Tensor:
+        """
+        (res, res) ground-truth C-space SDF on cspace_grid(res),
+        positive in free space.
+        """
+        labels = self.collision_labels(cspace_grid(resolution))
+        free = (labels > 0).numpy()
+        # without both classes, distance_transform_edt returns meaningless numbers
+        # instead of failing
+        if free.all() or not free.any():
+            raise ValueError(
+                f"C-space SDF needs both free and colliding configurations, but this scene is "
+                f"{'entirely free' if free.all() else 'entirely in collision'}"
+            )
 
-        unit = 2 * math.pi / n
-        tiled = np.tile(free, (3, 3))
+        cell_size = 2 * math.pi / resolution
+        # the C-space is a torus:
+        # tile 3x3 so that distances across the 0 / 2pi seam are right, then crop the center
+        free_tiled = np.tile(free, (3, 3))
+        distance_to_collision = distance_transform_edt(free_tiled, sampling=cell_size)
+        distance_to_free = distance_transform_edt(~free_tiled, sampling=cell_size)
+        # the EDT measures between cell centers:
+        # shift by half a cell to put the boundary between the cells
+        signed_distance = np.where(
+            free_tiled,
+            distance_to_collision - cell_size / 2,
+            -(distance_to_free - cell_size / 2),
+        )
+        center = slice(resolution, 2 * resolution)
+        return torch.from_numpy(signed_distance[center, center]).float()
 
-        to_col = distance_transform_edt(tiled, sampling=unit)
-        to_free = distance_transform_edt(~tiled, sampling=unit)
-        gt_dis = np.where(tiled, to_col - unit / 2, -(to_free - unit / 2))
-        gt_sdf = torch.from_numpy(gt_dis[n : 2 * n, n : 2 * n]).float()
-        return gt_sdf
-
-    def sample_configurations(
-        self,
-        arm: PlanarArm,
-        n_samples: int = 5000,
-        use_boundary_sampling: bool = True,
-        boundary_ratio: float = 0.5,
-        sigma: float = 0.15,
-        bisection_steps: int = 3,
-    ) -> tuple[Tensor, Tensor]:
-        """Sample C-space configurations combining Jacobian-weighted and boundary-densified sampling."""
-        n_boundary = int(n_samples * boundary_ratio) if use_boundary_sampling else 0
-        q_boundary = torch.empty((0, arm.dof), dtype=torch.float32)
-
+    def sample_configurations(self, config: SamplingConfig) -> tuple[Tensor, Tensor]:
+        """Jacobian-weighted + boundary samples -> q (N, n) in [0, 2pi), labels y (N,)"""
+        n_boundary = int(config.n_samples * config.boundary_ratio)
+        if not config.boundary_sampling:
+            n_boundary = 0
+        q_boundary = torch.empty(0, self.robot.dof)
         if n_boundary > 0:
-            q1 = arm.weighted_sample(n=max(n_boundary * 5, 1000))
-            q2 = q1 + torch.randn_like(q1) * sigma
+            # pairs of a weighted sample and its perturbation, kept if they cross the boundary
+            q_start = self.robot.weighted_sample(max(5 * n_boundary, 1000))
+            q_end = q_start + config.sigma * torch.randn_like(q_start)
+            y_start = self.collision_labels(q_start)
+            crossing = y_start != self.collision_labels(q_end)
+            q_start, q_end, y_start = q_start[crossing], q_end[crossing], y_start[crossing]
+            # bisection: both ends move towards the boundary, keeping their labels
+            for _ in range(config.bisection_steps):
+                q_middle = 0.5 * (q_start + q_end)
+                # (pairs, 1)
+                middle_like_start = (self.collision_labels(q_middle) == y_start)[:, None]
+                q_start = torch.where(middle_like_start, q_middle, q_start)
+                q_end = torch.where(middle_like_start, q_end, q_middle)
+            # (2 * pairs, n): pairs stay together, so the cut keeps both sides of the boundary
+            q_boundary = torch.stack([q_start, q_end], dim=1).flatten(0, 1)[:n_boundary]
 
-            y1 = self.collision_labels(arm, q1 % (2 * math.pi))
-            y2 = self.collision_labels(arm, q2 % (2 * math.pi))
-
-            cross_mask = y1 != y2
-            q1_cross, q2_cross = q1[cross_mask], q2[cross_mask]
-            y1_cross = y1[cross_mask]
-
-            if len(q1_cross) > 0:
-                for _ in range(bisection_steps):
-                    q_mid = 0.5 * (q1_cross + q2_cross)
-                    y_mid = self.collision_labels(arm, q_mid % (2 * math.pi))
-
-                    same_as_q1 = (y_mid == y1_cross).unsqueeze(-1)
-                    q1_cross = torch.where(same_as_q1, q_mid, q1_cross)
-                    q2_cross = torch.where(same_as_q1, q2_cross, q_mid)
-
-                q_boundary = torch.cat([q1_cross, q2_cross], dim=0) % (2 * math.pi)
-                q_boundary = q_boundary[:n_boundary]
-
-        n_weighted = n_samples - len(q_boundary)
-        q_weighted = arm.weighted_sample(n=n_weighted)
-
-        q = torch.cat([q_weighted, q_boundary], dim=0)
-        q = q[torch.randperm(len(q))]
-        y = self.collision_labels(arm, q)
-        return q, y
+        q_weighted = self.robot.weighted_sample(config.n_samples - len(q_boundary))
+        q = torch.cat([q_weighted, q_boundary])
+        q = torch.remainder(q[torch.randperm(len(q))], 2 * math.pi)
+        return q, self.collision_labels(q)

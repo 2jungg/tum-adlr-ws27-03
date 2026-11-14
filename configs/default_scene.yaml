@@ -1,0 +1,28 @@
+scene_visualizer:
+  scene:
+    obstacle:
+      center_x: 1.2
+      center_y: 0.5
+      radius: 0.35
+      obstacle_type: circle
+    robot:
+      link_lengths:
+      - 1.0
+      - 1.0
+      base_position_x: 0.0
+      base_position_y: 0.0
+      link_radius: 0.1
+    bounds:
+      xmin: -3.0
+      xmax: 3.0
+      ymin: -3.0
+      ymax: 3.0
+  field_color_map: RdBu_r
+  obstacle_color: '#2166ac'
+  free_color: '#008300'
+  collision_color: '#e34948'
+  pose_colors:
+  - '#eb6834'
+  - '#1baf7a'
+  - '#6250d6'
+  - '#eda100'

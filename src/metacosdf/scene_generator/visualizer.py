@@ -1,277 +1,326 @@
-"""Visualization utilities for 2D workspace and C-space distance fields."""
+"""Workspace and C-space plots. C-space fields are passed as values on cspace_grid(res)."""
 
 import math
 from dataclasses import dataclass
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-from matplotlib.colors import TwoSlopeNorm
 import numpy as np
 import torch
+from matplotlib.colors import TwoSlopeNorm
+from matplotlib.patheffects import Normal, Stroke
 from torch import Tensor
 
-from metacosdf.scene_generator.arm import PlanarArm
+from metacosdf.config_utils import Config
 from metacosdf.scene_generator.scene import Scene, cspace_grid
+from metacosdf.tensor_utils import to_numpy
 
 TWO_PI = 2.0 * math.pi
-FIELD_CMAP = "RdBu_r"
-OBSTACLE_COLOR = "#2166ac"
-FREE_COLOR = "#008300"
-COLLISION_COLOR = "#e34948"
-POSE_COLORS = ["#eb6834", "#1baf7a", "#6250d6", "#eda100"]
+# readable on any background
+LABEL_BOX = dict(boxstyle="round,pad=0.15", facecolor="white", edgecolor="none", alpha=0.75)
 
 
-def _add_colorbar(ax: plt.Axes, im, vmin: float, vmax: float, label: str | None = None):
-    """Attach a diverging colorbar with ticks on both sides of zero."""
+def _diverging_norm(values: np.ndarray) -> TwoSlopeNorm:
+    """centered at 0; padded because TwoSlopeNorm needs vmin < 0 < vmax"""
+    return TwoSlopeNorm(0.0, min(float(values.min()), -1e-6), max(float(values.max()), 1e-6))
+
+
+def _add_colorbar(ax: plt.Axes, mappable, label: str | None = None):
+    """ticks on both sides of 0, the default ticks can miss the shorter side"""
+    vmin, vmax = mappable.norm.vmin, mappable.norm.vmax
     span = vmax - vmin
     ticks = [0.0]
     if -vmin > 0.05 * span:
         ticks += np.linspace(vmin, 0.0, 3)[:-1].tolist()
     if vmax > 0.05 * span:
         ticks += np.linspace(0.0, vmax, 3)[1:].tolist()
-    return plt.colorbar(im, ax=ax, shrink=0.82, ticks=sorted(ticks), format="%.2f", label=label)
+    return ax.figure.colorbar(
+        mappable, ax=ax, shrink=0.8, ticks=sorted(ticks), format="%.2f", label=label
+    )
+
+
+def _draw_zero_level(
+    ax: plt.Axes, horizontal: np.ndarray, vertical: np.ndarray, values: np.ndarray, **kwargs
+) -> None:
+    """only if the values change sign, matplotlib warns otherwise"""
+    if values.min() < 0.0 < values.max():
+        ax.contour(horizontal, vertical, values, levels=[0.0], **kwargs)
+
+
+def _format_cspace_axes(ax: plt.Axes, title: str) -> None:
+    """[0, 2pi)^2, q1 horizontal"""
+    ticks = [0.0, math.pi, TWO_PI]
+    ax.set(
+        xlim=(0.0, TWO_PI),
+        ylim=(0.0, TWO_PI),
+        xticks=ticks,
+        yticks=ticks,
+        xticklabels=["0", "π", "2π"],
+        yticklabels=["0", "π", "2π"],
+        xlabel=r"$q_1$ [rad]",
+        ylabel=r"$q_2$ [rad]",
+        title=title,
+        aspect="equal",
+    )
 
 
 @dataclass
-class SceneVisualizer:
-    """Visualizer for a 2D workspace scene and its C-space fields."""
+class SceneVisualizer(Config):
+    """Poses keep their color and number in every panel."""
 
     scene: Scene
-    arm: PlanarArm | None = None
+    field_color_map: str = "RdBu_r"
+    obstacle_color: str = "#2166ac"
+    free_color: str = "#008300"
+    collision_color: str = "#e34948"
+    pose_colors: tuple[str, ...] = ("#eb6834", "#1baf7a", "#6250d6", "#eda100")
 
-    def _workspace_grid(self, res: int = 300) -> tuple[Tensor, Tensor]:
-        xmin, xmax, ymin, ymax = self.scene.bounds
-        return torch.meshgrid(
-            torch.linspace(xmin, xmax, res),
-            torch.linspace(ymin, ymax, res),
-            indexing="ij",
-        )
+    def _pose_color(self, index: int) -> str:
+        return self.pose_colors[index % len(self.pose_colors)]
 
     def _draw_arm(
-        self,
-        ax: plt.Axes,
-        q: Tensor,
-        color: str,
-        label: str | None = None,
+        self, ax: plt.Axes, q: Tensor, color: str, text: str, text_color: str
     ) -> None:
-        assert self.arm is not None
-        p = self.arm.joint_positions(q).detach().cpu().numpy()
-        ax.plot(p[:, 0], p[:, 1], "-", color=color, lw=5, solid_capstyle="round", zorder=3)
+        """q (n,), text at the tip"""
+        p = to_numpy(self.scene.robot.joint_positions(q))  # (n+1, 2): base, joints, tip
+        outline = [Stroke(linewidth=7, foreground="black"), Normal()]
+        ax.plot(
+            p[:, 0],
+            p[:, 1],
+            "-",
+            color=color,
+            lw=5,
+            solid_capstyle="round",
+            path_effects=outline,
+            zorder=3,
+        )
         ax.plot(p[:-1, 0], p[:-1, 1], "o", color="black", ms=4, zorder=4)
-        if label is not None:
-            ax.annotate(label, p[-1], xytext=(5, 4), textcoords="offset points", fontsize=9, weight="bold", zorder=5)
+        ax.annotate(
+            text,
+            p[-1],
+            xytext=(5, 4),
+            textcoords="offset points",
+            color=text_color,
+            fontsize=9,
+            weight="bold",
+            bbox=LABEL_BOX,
+            zorder=5,
+        )
 
     def plot_workspace(
         self,
         ax: plt.Axes | None = None,
         qs: Tensor | None = None,
         show_sdf: bool = False,
-        res: int = 300,
-        title: str = "Workspace",
+        resolution: int = 300,
+        title: str = "",
     ) -> plt.Axes:
-        """Plot workspace obstacles, optional workspace SDF, arm reach, and sample poses."""
+        """obstacles or, with show_sdf, the workspace SDF; reach dashed; qs (n,) or (k, n)"""
         if ax is None:
             _, ax = plt.subplots(figsize=(5.5, 5.2))
 
-        X, Y = self._workspace_grid(res=res)
-        D = self.scene.sdf(torch.stack([X, Y], dim=-1)).detach().cpu().numpy()
-        X_np, Y_np = X.numpy(), Y.numpy()
+        grid = self.scene.workspace_grid(resolution)  # (res, res, 2)
+        sdf_values = to_numpy(self.scene.obstacle.sdf(grid))  # (res, res)
+        grid_x, grid_y = to_numpy(grid[..., 0]), to_numpy(grid[..., 1])
 
         if show_sdf:
-            vmin, vmax = min(float(D.min()), -1e-6), max(float(D.max()), 1e-6)
-            im = ax.pcolormesh(X_np, Y_np, D, cmap=FIELD_CMAP, norm=TwoSlopeNorm(0.0, vmin, vmax), shading="nearest")
-            if D.max() > 0.5:
-                ax.contour(X_np, Y_np, D, levels=np.arange(0.5, D.max(), 0.5), colors="black", linewidths=0.4, alpha=0.35)
-            _add_colorbar(ax, im, vmin, vmax, label="workspace SDF")
-        elif D.min() < 0.0:
-            ax.contourf(X_np, Y_np, D, levels=[float(D.min()) - 1.0, 0.0], colors=[OBSTACLE_COLOR], alpha=0.85)
-
-        if D.min() < 0.0 < D.max():
-            ax.contour(X_np, Y_np, D, levels=[0.0], colors="black", linewidths=1.2)
-
-        if self.arm is not None:
-            reach_patch = plt.Circle(
-                self.arm.base,
-                self.arm.reach + self.arm.link_radius,
-                fill=False,
-                ls="--",
-                color="0.5",
-                lw=1.0,
+            mesh = ax.pcolormesh(
+                grid_x,
+                grid_y,
+                sdf_values,
+                cmap=self.field_color_map,
+                norm=_diverging_norm(sdf_values),
+                shading="nearest",
             )
-            ax.add_patch(reach_patch)
+            iso_levels = np.arange(0.5, sdf_values.max(), 0.5)
+            if iso_levels.size > 0:
+                ax.contour(
+                    grid_x,
+                    grid_y,
+                    sdf_values,
+                    levels=iso_levels,
+                    colors="black",
+                    linewidths=0.4,
+                    alpha=0.35,
+                )
+            _add_colorbar(ax, mesh, label="workspace SDF")
+        elif sdf_values.min() < 0.0:
+            ax.contourf(
+                grid_x,
+                grid_y,
+                sdf_values,
+                levels=[sdf_values.min() - 1.0, 0.0],
+                colors=[self.obstacle_color],
+            )
+        _draw_zero_level(ax, grid_x, grid_y, sdf_values, colors="black", linewidths=1.0)
 
-            if qs is not None:
-                qs_batch = qs.unsqueeze(0) if qs.ndim == 1 else qs
-                labels = self.scene.collision_labels(self.arm, qs_batch)
-                for idx, (q, y) in enumerate(zip(qs_batch, labels)):
-                    color = FREE_COLOR if y > 0 else COLLISION_COLOR
-                    self._draw_arm(ax, q, color=color, label=str(idx + 1))
+        robot = self.scene.robot
+        base = (robot.base_position_x, robot.base_position_y)
+        ax.add_patch(
+            plt.Circle(
+                base, robot.reach + robot.link_radius, fill=False, ls="--", color="0.5", lw=1.0
+            )
+        )
 
-        xmin, xmax, ymin, ymax = self.scene.bounds
-        ax.set(xlim=(xmin, xmax), ylim=(ymin, ymax), aspect="equal", xlabel="x", ylabel="y", title=title)
-        ax.grid(True, linestyle=":", alpha=0.4)
+        if qs is not None:
+            qs = torch.atleast_2d(qs)  # (k, n)
+            for index, (q, label) in enumerate(
+                zip(qs, self.scene.collision_labels(qs), strict=False)
+            ):
+                free = bool(label > 0)
+                self._draw_arm(
+                    ax,
+                    q,
+                    self._pose_color(index),
+                    text=f"{index + 1}: {'free' if free else 'collision'}",
+                    text_color=self.free_color if free else self.collision_color,
+                )
+
+        bounds = self.scene.bounds
+        ax.set(
+            xlim=(bounds.xmin, bounds.xmax),
+            ylim=(bounds.ymin, bounds.ymax),
+            aspect="equal",
+            xlabel="x",
+            ylabel="y",
+            title=title,
+        )
         return ax
 
     def plot_cspace(
         self,
+        values: Tensor,
         ax: plt.Axes | None = None,
-        values: Tensor | None = None,
         boundary: Tensor | None = None,
         qs: Tensor | None = None,
-        n: int = 256,
-        title: str = "C-Space Ground-Truth SDF [rad]",
+        title: str = "",
+        colorbar_label: str | None = None,
     ) -> plt.Axes:
-        """Plot a 2D C-space scalar field (defaults to ground-truth C-space SDF)."""
+        """values (res, res); the zero level of boundary (e.g. ground truth) is dashed"""
         if ax is None:
             _, ax = plt.subplots(figsize=(5.5, 5.2))
 
-        if values is None:
-            if self.arm is None:
-                raise ValueError("arm must be provided to compute ground-truth C-space SDF.")
-            values = self.scene.cspace_sdf(self.arm, n=n)
-
-        grid_n = values.shape[0]
-        Q = cspace_grid(grid_n).numpy()
-        V = values.detach().cpu().numpy()
-
-        vmin, vmax = min(float(V.min()), -1e-6), max(float(V.max()), 1e-6)
-        im = ax.pcolormesh(Q[..., 0], Q[..., 1], V, cmap=FIELD_CMAP, norm=TwoSlopeNorm(0.0, vmin, vmax), shading="nearest")
-
-        if V.min() < 0.0 < V.max():
-            ax.contour(Q[..., 0], Q[..., 1], V, levels=[0.0], colors="black", linewidths=1.3)
-
+        grid = cspace_grid(values.shape[0])  # (res, res, 2)
+        grid_q1, grid_q2 = to_numpy(grid[..., 0]), to_numpy(grid[..., 1])
+        field_values = to_numpy(values)
+        mesh = ax.pcolormesh(
+            grid_q1,
+            grid_q2,
+            field_values,
+            cmap=self.field_color_map,
+            norm=_diverging_norm(field_values),
+            shading="nearest",
+        )
+        _draw_zero_level(ax, grid_q1, grid_q2, field_values, colors="black", linewidths=1.2)
         if boundary is not None:
-            B = boundary.detach().cpu().numpy()
-            if B.min() < 0.0 < B.max():
-                ax.contour(Q[..., 0], Q[..., 1], B, levels=[0.0], colors=FREE_COLOR, linewidths=1.5, linestyles="--")
+            _draw_zero_level(
+                ax,
+                grid_q1,
+                grid_q2,
+                to_numpy(boundary),
+                colors=self.free_color,
+                linewidths=1.5,
+                linestyles="--",
+            )
 
         if qs is not None:
-            qs_batch = qs.unsqueeze(0) if qs.ndim == 1 else qs
-            for idx, q in enumerate(qs_batch):
-                q1, q2 = torch.remainder(q, TWO_PI).tolist()
-                ax.plot(q1, q2, "o", color=POSE_COLORS[idx % len(POSE_COLORS)], mec="black", mew=1.2, ms=8)
-                ax.annotate(str(idx + 1), (q1, q2), xytext=(6, 4), textcoords="offset points", fontsize=9, weight="bold")
+            for index, q in enumerate(torch.remainder(torch.atleast_2d(qs), TWO_PI)):
+                q1, q2 = q.tolist()
+                ax.plot(q1, q2, "o", color=self._pose_color(index), mec="black", mew=1.2, ms=9)
+                ax.annotate(
+                    str(index + 1),
+                    (q1, q2),
+                    xytext=(6, 4),
+                    textcoords="offset points",
+                    fontsize=10,
+                    weight="bold",
+                    bbox=LABEL_BOX,
+                )
 
-        ticks = [0.0, math.pi, TWO_PI]
-        ax.set(
-            xticks=ticks,
-            yticks=ticks,
-            xticklabels=["0", "π", "2π"],
-            yticklabels=["0", "π", "2π"],
-            xlabel=r"$\theta_1$ [rad]",
-            ylabel=r"$\theta_2$ [rad]",
-            title=title,
-            aspect="equal",
-        )
-        _add_colorbar(ax, im, vmin, vmax)
+        _format_cspace_axes(ax, title)
+        _add_colorbar(ax, mesh, label=colorbar_label)
         return ax
 
     def plot_samples(
         self,
-        ax: plt.Axes | None = None,
-        q_samples: Tensor | None = None,
+        q_samples: Tensor,
         y_samples: Tensor | None = None,
-        values: Tensor | None = None,
-        n: int = 256,
+        ax: plt.Axes | None = None,
+        ground_truth: Tensor | None = None,
         title: str | None = None,
     ) -> plt.Axes:
-        """Plot sampled C-space configurations overlaid on the ground-truth collision boundary."""
+        """q_samples (N, n), labels computed if missing; ground_truth shades the C-obstacles"""
         if ax is None:
             _, ax = plt.subplots(figsize=(5.5, 5.2))
 
-        if values is None and self.arm is not None:
-            values = self.scene.cspace_sdf(self.arm, n=n)
+        if ground_truth is not None:
+            grid = cspace_grid(ground_truth.shape[0])  # (res, res, 2)
+            grid_q1, grid_q2 = to_numpy(grid[..., 0]), to_numpy(grid[..., 1])
+            values = to_numpy(ground_truth)
+            if values.min() < 0.0:
+                ax.contourf(
+                    grid_q1,
+                    grid_q2,
+                    values,
+                    levels=[values.min() - 1.0, 0.0],
+                    colors=[self.obstacle_color],
+                    alpha=0.2,
+                )
+            _draw_zero_level(ax, grid_q1, grid_q2, values, colors="black", linewidths=1.2)
 
-        if values is not None:
-            grid_n = values.shape[0]
-            Q = cspace_grid(grid_n).numpy()
-            V = values.detach().cpu().numpy()
-            if V.min() < 0.0:
-                ax.contourf(Q[..., 0], Q[..., 1], V, levels=[float(V.min()) - 1.0, 0.0], colors=["#d1e5f0"], alpha=0.5)
-            if V.min() < 0.0 < V.max():
-                ax.contour(Q[..., 0], Q[..., 1], V, levels=[0.0], colors="black", linewidths=1.2)
-
-        if q_samples is not None:
-            if y_samples is None and self.arm is not None:
-                y_samples = self.scene.collision_labels(self.arm, q_samples)
-
-            q_np = torch.remainder(q_samples.detach().cpu(), TWO_PI).numpy()
-            if y_samples is not None:
-                y_np = y_samples.detach().cpu().numpy()
-                free_mask = y_np > 0
-                col_mask = ~free_mask
-                ax.scatter(q_np[free_mask, 0], q_np[free_mask, 1], s=4, c=FREE_COLOR, alpha=0.45, label=f"free ({free_mask.sum()})")
-                ax.scatter(q_np[col_mask, 0], q_np[col_mask, 1], s=4, c=COLLISION_COLOR, alpha=0.55, label=f"collision ({col_mask.sum()})")
-                ax.legend(loc="upper right", fontsize=8, markerscale=2.5, framealpha=0.85)
-            else:
-                ax.scatter(q_np[:, 0], q_np[:, 1], s=4, c="black", alpha=0.45)
+        if y_samples is None:
+            y_samples = self.scene.collision_labels(q_samples)
+        q_wrapped = to_numpy(torch.remainder(q_samples, TWO_PI))  # (N, n)
+        free = to_numpy(y_samples) > 0  # (N,)
+        for mask, color, name in [
+            (free, self.free_color, "free"),
+            (~free, self.collision_color, "collision"),
+        ]:
+            ax.scatter(
+                q_wrapped[mask, 0],
+                q_wrapped[mask, 1],
+                s=4,
+                color=color,
+                alpha=0.5,
+                label=f"{name} ({mask.sum()})",
+            )
+        ax.legend(loc="upper right", fontsize=8, markerscale=2.5, framealpha=0.85)
 
         if title is None:
-            n_pts = len(q_samples) if q_samples is not None else 0
-            title = f"Sampled Configurations (N={n_pts})"
-
-        ticks = [0.0, math.pi, TWO_PI]
-        ax.set(
-            xlim=(0.0, TWO_PI),
-            ylim=(0.0, TWO_PI),
-            xticks=ticks,
-            yticks=ticks,
-            xticklabels=["0", "π", "2π"],
-            yticklabels=["0", "π", "2π"],
-            xlabel=r"$\theta_1$ [rad]",
-            ylabel=r"$\theta_2$ [rad]",
-            title=title,
-            aspect="equal",
-        )
+            title = f"sampled configurations (N={len(q_samples)})"
+        _format_cspace_axes(ax, title)
         return ax
 
-    def show(
+    def plot_overview(
         self,
+        ground_truth: Tensor,
         qs: Tensor | None = None,
-        q_samples: Tensor | None = None,
-        y_samples: Tensor | None = None,
-        n: int = 256,
-        show_ws_sdf: bool = False,
+        fields: dict[str, Tensor] | None = None,
+        ncols: int = 3,
         save_path: str | Path | None = None,
-    ) -> None:
-        """Display workspace, C-space GT SDF, and optional sampled points, or save to file."""
-        if self.arm is None:
-            fig, ax = plt.subplots(figsize=(5.8, 5.2))
-            self.plot_workspace(ax=ax, show_sdf=show_ws_sdf)
-        elif q_samples is not None:
-            fig, axes = plt.subplots(1, 3, figsize=(16.5, 5.0))
-            gt_sdf = self.scene.cspace_sdf(self.arm, n=n)
-            self.plot_workspace(ax=axes[0], qs=qs, show_sdf=show_ws_sdf, title="Workspace (green=free, red=collision)")
-            self.plot_cspace(ax=axes[1], values=gt_sdf, qs=qs, n=n)
-            self.plot_samples(ax=axes[2], q_samples=q_samples, y_samples=y_samples, values=gt_sdf, n=n)
-        else:
-            fig, axes = plt.subplots(1, 2, figsize=(11.5, 5.0))
-            self.plot_workspace(ax=axes[0], qs=qs, show_sdf=show_ws_sdf, title="Workspace (green=free, red=collision)")
-            self.plot_cspace(ax=axes[1], qs=qs, n=n)
+    ) -> plt.Figure:
+        """workspace | ground truth | one panel per field, ground-truth boundary dashed"""
+        fields = fields or {}
+        n_panels = 2 + len(fields)
+        ncols = min(ncols, n_panels)
+        nrows = math.ceil(n_panels / ncols)
+        fig, axes = plt.subplots(
+            nrows, ncols, figsize=(5.2 * ncols, 4.6 * nrows), squeeze=False
+        )
+        axes = axes.ravel()
 
+        self.plot_workspace(
+            axes[0], qs=qs, title="workspace, poses and the arm's reach (dashed)"
+        )
+        self.plot_cspace(ground_truth, axes[1], qs=qs, title="ground-truth C-space SDF [rad]")
+        for ax, (name, values) in zip(axes[2:], fields.items(), strict=False):
+            self.plot_cspace(values, ax, boundary=ground_truth, qs=qs, title=name)
+        for ax in axes[n_panels:]:
+            ax.axis("off")
         fig.tight_layout()
+
         if save_path is not None:
             path = Path(save_path)
             path.parent.mkdir(parents=True, exist_ok=True)
             fig.savefig(path, dpi=200, bbox_inches="tight")
-            plt.close(fig)
-        else:
-            plt.show()
-
-
-if __name__ == "__main__":
-    from metacosdf.scene_generator.obstacles import Box, Circle
-
-    arm = PlanarArm()
-    scene = Scene(
-        obstacles=(
-            Circle(center=(1.2, 0.5), radius=0.35),
-            Box(center=(-0.8, 0.9), half_size=(0.3, 0.35), angle=0.5),
-        )
-    )
-    qs = torch.tensor([
-        [0.2, 0.2],
-        [2.2, 0.4],
-        [4.2, 0.8],
-    ])
-    SceneVisualizer(scene=scene, arm=arm).show(qs=qs, show_ws_sdf=False)
+        return fig

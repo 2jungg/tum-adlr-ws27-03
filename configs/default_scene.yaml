@@ -1,10 +1,18 @@
 scene_visualizer:
   scene:
     obstacle:
-      center_x: 1.2
-      center_y: 0.5
-      radius: 0.35
-      obstacle_type: circle
+      elements:
+      - center_x: 1.2
+        center_y: 0.5
+        radius: 0.35
+        obstacle_type: circle
+      - center_x: -1.2
+        center_y: 1.1
+        half_size_x: 0.3
+        half_size_y: 0.4
+        angle: 0.5
+        obstacle_type: box
+      obstacle_type: composition
     robot:
       link_lengths:
       - 1.0

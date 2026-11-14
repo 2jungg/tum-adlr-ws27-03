@@ -22,9 +22,12 @@ if __name__ == "__main__":
     parser.add_argument("--config", type=Path, default=ROOT / "configs" / "fit_mlp.yaml")
     parser.add_argument("--dataset", type=Path, help="eval.pt, the only split that has scenes")
     parser.add_argument("--scene-index", type=int, default=0)
+    parser.add_argument("--device", help="overrides training.device of the config, e.g. cuda")
     args = parser.parse_args()
 
     config = load_config(args.config)
+    if args.device is not None:
+        config["training"]["device"] = args.device
     model_config = MLPConfig.from_dict(config["model"])
     training_config = TrainingConfig.from_dict(config["training"])
     torch.manual_seed(training_config.seed)

@@ -1,4 +1,4 @@
-"""Random scenes of circles and boxes within the arm's reach."""
+"""Random scenes of circles, boxes, arcs and polygons within the arm's reach."""
 
 import math
 from dataclasses import dataclass, field
@@ -8,7 +8,7 @@ import torch
 
 from metacosdf.config_utils import Config
 from metacosdf.robot import PlanarArm
-from metacosdf.scene_generator.obstacles import Box, Circle, Composition, Obstacle
+from metacosdf.scene_generator.obstacles import Arc, Box, Circle, Composition, Obstacle, Polygon
 from metacosdf.scene_generator.scene import Scene
 
 
@@ -19,10 +19,30 @@ class SceneGeneratorConfig(Config):
     max_obstacles: int = 4
     # distance from the base, on top of the link radius
     min_base_clearance: float = 0.2
+    obstacle_types: list[str] = field(
+        default_factory=lambda: ["circle", "box", "arc", "polygon"]
+    )
+
+
+def _create_random_polygon(
+    center_x: float, center_y: float, rng: np.random.Generator
+) -> Polygon:
+    """Star-shaped simple polygon (convex or non-convex) without self-intersections."""
+    n_vertices = int(rng.integers(5, 9))
+    step = 2 * math.pi / n_vertices
+    rotation = float(rng.uniform(0, 2 * math.pi))
+    vertices = []
+    for k in range(n_vertices):
+        theta = k * step + float(rng.uniform(-0.35 * step, 0.35 * step)) + rotation
+        radius = float(rng.uniform(0.12, 0.5))
+        vertices.append(
+            [center_x + radius * math.cos(theta), center_y + radius * math.sin(theta)]
+        )
+    return Polygon(vertices=vertices)
 
 
 def create_random_obstacle(config: SceneGeneratorConfig, rng: np.random.Generator) -> Obstacle:
-    """circle or box, centered uniformly by area between the base clearance and the reach"""
+    """random obstacle centered uniformly by area between the base clearance and the reach"""
     robot = config.robot
     angle = float(rng.uniform(0, 2 * math.pi))
     min_distance = config.min_base_clearance + robot.link_radius
@@ -30,15 +50,29 @@ def create_random_obstacle(config: SceneGeneratorConfig, rng: np.random.Generato
     center_x = robot.base_position_x + distance * math.cos(angle)
     center_y = robot.base_position_y + distance * math.sin(angle)
     # python floats: numpy floats break YAML and weights-only torch.load
-    if rng.uniform() > 0.5:
+    obstacle_type = str(rng.choice(config.obstacle_types))
+    if obstacle_type == "circle":
         return Circle(center_x=center_x, center_y=center_y, radius=float(rng.uniform(0.1, 0.5)))
-    return Box(
-        center_x=center_x,
-        center_y=center_y,
-        half_size_x=float(rng.uniform(0.1, 0.5)),
-        half_size_y=float(rng.uniform(0.1, 0.5)),
-        angle=float(rng.uniform(0, math.pi)),
-    )
+    if obstacle_type == "box":
+        return Box(
+            center_x=center_x,
+            center_y=center_y,
+            half_size_x=float(rng.uniform(0.1, 0.5)),
+            half_size_y=float(rng.uniform(0.1, 0.5)),
+            angle=float(rng.uniform(0, math.pi)),
+        )
+    if obstacle_type == "arc":
+        return Arc(
+            center_x=center_x,
+            center_y=center_y,
+            radius=float(rng.uniform(0.25, 0.55)),
+            thickness=float(rng.uniform(0.06, 0.14)),
+            aperture=float(rng.uniform(0.5 * math.pi, 0.85 * math.pi)),
+            angle=float(rng.uniform(0, 2 * math.pi)),
+        )
+    if obstacle_type == "polygon":
+        return _create_random_polygon(center_x, center_y, rng)
+    raise ValueError(f"Unknown obstacle type: {obstacle_type!r}")
 
 
 def create_random_scene(config: SceneGeneratorConfig, rng: np.random.Generator) -> Scene:

@@ -24,14 +24,9 @@ if __name__ == "__main__":
         )
     )
     default_scene = Scene(obstacle=default_circle, robot=default_arm)
-    save_config({"scene": default_scene.to_dict()}, configs_dir / "default_scene.yaml")
-
-    save_config(
-        {"scene_visualization": SceneVisualizationConfig().to_dict()},
-        configs_dir / "scene_visualization.yaml",
-    )
-
-    save_config({"dataset": DatasetConfig().to_dict()}, configs_dir / "dataset.yaml")
+    default_scene.to_yaml(configs_dir / "default_scene.yaml")
+    SceneVisualizationConfig().to_yaml(configs_dir / "scene_visualization.yaml")
+    DatasetConfig().to_yaml(configs_dir / "dataset.yaml")
 
     save_config(
         {"model": MLPConfig().to_dict(), "training": TrainingConfig().to_dict()},

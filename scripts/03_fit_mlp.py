@@ -7,7 +7,6 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import torch
 
-from metacosdf.config_utils import load_config
 from metacosdf.fields import NeuralField, embedding_size, evaluate_on_grid
 from metacosdf.metrics import field_metrics
 from metacosdf.models import MLP, MLPConfig
@@ -25,15 +24,14 @@ if __name__ == "__main__":
     parser.add_argument("--device", help="overrides training.device of the config, e.g. cuda")
     args = parser.parse_args()
 
-    config = load_config(args.config)
+    model_config = MLPConfig.from_yaml(args.config)
+    training_config = TrainingConfig.from_yaml(args.config)
     if args.device is not None:
-        config["training"]["device"] = args.device
-    model_config = MLPConfig.from_dict(config["model"])
-    training_config = TrainingConfig.from_dict(config["training"])
+        training_config.device = args.device
     torch.manual_seed(training_config.seed)
 
     if args.dataset is None:
-        scene = Scene.from_dict(load_config(ROOT / "configs" / "default_scene.yaml")["scene"])
+        scene = Scene.from_yaml(ROOT / "configs" / "default_scene.yaml")
         q, labels = scene.sample_configurations(SamplingConfig())
     else:
         entry = torch.load(args.dataset)["scenes"][args.scene_index]

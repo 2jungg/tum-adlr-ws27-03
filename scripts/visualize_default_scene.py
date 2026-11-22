@@ -5,16 +5,13 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import torch
 
-from metacosdf.config_utils import load_config
 from metacosdf.scene_generator.scene import Scene, cspace_grid
 from metacosdf.visualization import SceneVisualizationConfig, plot_overview, plot_workspace
 
 if __name__ == "__main__":
     configs_dir = Path(__file__).parent.parent / "configs"
-    scene = Scene.from_dict(load_config(configs_dir / "default_scene.yaml")["scene"])
-    config = SceneVisualizationConfig.from_dict(
-        load_config(configs_dir / "scene_visualization.yaml")["scene_visualization"]
-    )
+    scene = Scene.from_yaml(configs_dir / "default_scene.yaml")
+    config = SceneVisualizationConfig.from_yaml(configs_dir / "scene_visualization.yaml")
 
     # (4, 2) hand-picked configurations in radians:
     # two in collision, one just free next to the box, one far away

@@ -1,3 +1,4 @@
+import re
 from dataclasses import asdict, dataclass, fields, is_dataclass
 from pathlib import Path
 
@@ -9,12 +10,16 @@ from dacite import from_dict
 @dataclass
 class Config:
     @classmethod
-    def from_dict[T](cls: type[T], config_dict: dict) -> T:
+    def key(cls) -> str:
+        return snake_case(cls.__name__.removesuffix("Config"))
+
+    @classmethod
+    def from_dict[T: Config](cls: type[T], config_dict: dict) -> T:
         config_dict = dict(config_dict)  # leave the caller's dict alone
-        type_key = config_dict.pop(f"{config_tag(family_root(cls))}_type", None)
+        type_key = config_dict.pop(f"{family_root(cls).key()}_type", None)
         config_class = cls
         if type_key is not None:
-            choices = {config_tag(sub): sub for sub in (cls, *all_config_classes(cls))}
+            choices = {sub.key(): sub for sub in (cls, *all_config_classes(cls))}
             if type_key not in choices:
                 raise ValueError(
                     f"{cls.__name__} type {type_key!r} is not one of {list(choices)}"
@@ -33,22 +38,31 @@ class Config:
             ),
         )
 
+    @classmethod
+    def from_yaml[T: Config](cls: type[T], path: Path | str) -> T:
+        """the file's section family_root(cls).key(), e.g. model: for MLPConfig"""
+        return cls.from_dict(load_config(path)[family_root(cls).key()])
+
     def to_dict(self) -> dict:
         config_dict = {
             field.name: to_plain(getattr(self, field.name)) for field in fields(self)
         }
         root = family_root(type(self))
         if root is not type(self):
-            config_dict[f"{config_tag(root)}_type"] = config_tag(type(self))
+            config_dict[f"{root.key()}_type"] = type(self).key()
         return config_dict
 
-
-def config_tag(cls: type) -> str:
-    """Circle -> "circle", MLPConfig -> "mlp": type keys and their values."""
-    return cls.__name__.removesuffix("Config").lower()
+    def to_yaml(self, path: Path | str) -> None:
+        save_config({family_root(type(self)).key(): self.to_dict()}, path)
 
 
-def family_root(cls: type) -> type:
+def snake_case(name: str) -> str:
+    """CamelCase -> snake_case, acronyms kept together: MLPConfig -> mlp_config"""
+    name = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", name)
+    return re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name).lower()
+
+
+def family_root(cls: type[Config]) -> type[Config]:
     """The most general Config subclass that cls derives from, e.g. Obstacle for Circle."""
     return [base for base in cls.__mro__ if issubclass(base, Config) and base is not Config][-1]
 

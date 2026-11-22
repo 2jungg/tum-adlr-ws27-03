@@ -16,7 +16,12 @@ ACTIVATIONS_TO_TORCH: dict[ActivationName, type[nn.Module]] = {
 
 
 @dataclass
-class MLPConfig(Config):
+class ModelConfig(Config):
+    """Base of the model configs."""
+
+
+@dataclass
+class MLPConfig(ModelConfig):
     hidden_width: int = 128
     hidden_layers: int = 3
     # smooth activations suit the Eikonal term

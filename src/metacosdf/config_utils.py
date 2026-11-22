@@ -11,10 +11,10 @@ class Config:
     @classmethod
     def from_dict[T](cls: type[T], config_dict: dict) -> T:
         config_dict = dict(config_dict)  # leave the caller's dict alone
-        type_key = config_dict.pop(f"{family_root(cls).__name__.lower()}_type", None)
+        type_key = config_dict.pop(f"{config_tag(family_root(cls))}_type", None)
         config_class = cls
         if type_key is not None:
-            choices = {sub.__name__.lower(): sub for sub in (cls, *all_config_classes(cls))}
+            choices = {config_tag(sub): sub for sub in (cls, *all_config_classes(cls))}
             if type_key not in choices:
                 raise ValueError(
                     f"{cls.__name__} type {type_key!r} is not one of {list(choices)}"
@@ -39,8 +39,13 @@ class Config:
         }
         root = family_root(type(self))
         if root is not type(self):
-            config_dict[f"{root.__name__.lower()}_type"] = type(self).__name__.lower()
+            config_dict[f"{config_tag(root)}_type"] = config_tag(type(self))
         return config_dict
+
+
+def config_tag(cls: type) -> str:
+    """Circle -> "circle", MLPConfig -> "mlp": type keys and their values."""
+    return cls.__name__.removesuffix("Config").lower()
 
 
 def family_root(cls: type) -> type:

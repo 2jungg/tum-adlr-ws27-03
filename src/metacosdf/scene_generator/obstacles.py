@@ -15,11 +15,6 @@ class Obstacle(Config, ABC):
     def sdf(self, p: Tensor) -> Tensor:
         """(..., 2) -> (...): calculate sdf of given tensor p."""
 
-    @classmethod
-    @abstractmethod
-    def config_key(cls) -> str:
-        """Name for the obstacle type to be used in config files."""
-
 
 @dataclass
 class Circle(Obstacle):
@@ -29,10 +24,6 @@ class Circle(Obstacle):
     def sdf(self, p: Tensor) -> Tensor:
         torchify = torchify_as(p)
         return torch.linalg.vector_norm(p - torchify(self.center), dim=-1) - self.radius
-
-    @classmethod
-    def config_key(cls) -> str:
-        return "circle"
 
 
 @dataclass
@@ -57,10 +48,6 @@ class Box(Obstacle):
         outside = torch.linalg.vector_norm(corner_offset.clamp(min=0), dim=-1)
         inside = corner_offset.amax(dim=-1).clamp(max=0)
         return outside + inside
-
-    @classmethod
-    def config_key(cls) -> str:
-        return "box"
 
 
 @dataclass
@@ -89,10 +76,6 @@ class Arc(Obstacle):
         dist_arc = (torch.linalg.vector_norm(local, dim=-1) - self.radius).abs()
         return torch.where(outside_arc, dist_endpoint, dist_arc) - self.thickness
 
-    @classmethod
-    def config_key(cls) -> str:
-        return "arc"
-
 
 @dataclass
 class Polygon(Obstacle):
@@ -119,10 +102,6 @@ class Polygon(Obstacle):
             sign = torch.where(flip, -sign, sign)
         return sign * d2.clamp(min=0.0).sqrt()
 
-    @classmethod
-    def config_key(cls) -> str:
-        return "polygon"
-
 
 @dataclass
 class Composition(Obstacle):
@@ -134,7 +113,3 @@ class Composition(Obstacle):
         for obstacle in self.elements[1:]:
             distance = torch.minimum(distance, obstacle.sdf(p))
         return distance
-
-    @classmethod
-    def config_key(cls) -> str:
-        return "composition"

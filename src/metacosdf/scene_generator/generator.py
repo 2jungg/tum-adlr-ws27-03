@@ -2,6 +2,7 @@
 
 import math
 from dataclasses import dataclass, field
+from typing import Literal, assert_never
 
 import numpy as np
 import torch
@@ -11,6 +12,8 @@ from metacosdf.robot import PlanarArm
 from metacosdf.scene_generator.obstacles import Arc, Box, Circle, Composition, Obstacle, Polygon
 from metacosdf.scene_generator.scene import Scene
 
+ObstacleName = Literal["circle", "box", "arc", "polygon"]
+
 
 @dataclass
 class SceneGeneratorConfig(Config):
@@ -19,7 +22,7 @@ class SceneGeneratorConfig(Config):
     max_obstacles: int = 4
     # distance from the base, on top of the link radius
     min_base_clearance: float = 0.2
-    obstacle_types: tuple[str, ...] = ("circle", "box", "arc", "polygon")
+    obstacle_types: tuple[ObstacleName, ...] = ("circle", "box", "arc", "polygon")
 
 
 def _create_random_polygon(center: tuple[float, float], rng: np.random.Generator) -> Polygon:
@@ -46,27 +49,29 @@ def create_random_obstacle(config: SceneGeneratorConfig, rng: np.random.Generato
     distance = math.sqrt(float(rng.uniform(min_distance**2, robot.reach**2)))
     base_x, base_y = robot.base_position
     center = (base_x + distance * math.cos(angle), base_y + distance * math.sin(angle))
+    obstacle_type = config.obstacle_types[int(rng.integers(len(config.obstacle_types)))]
     # python floats: numpy floats break YAML and weights-only torch.load
-    obstacle_type = str(rng.choice(config.obstacle_types))
-    if obstacle_type == "circle":
-        return Circle(center=center, radius=float(rng.uniform(0.1, 0.5)))
-    if obstacle_type == "box":
-        return Box(
-            center=center,
-            half_size=(float(rng.uniform(0.1, 0.5)), float(rng.uniform(0.1, 0.5))),
-            angle=float(rng.uniform(0, math.pi)),
-        )
-    if obstacle_type == "arc":
-        return Arc(
-            center=center,
-            radius=float(rng.uniform(0.25, 0.55)),
-            thickness=float(rng.uniform(0.06, 0.14)),
-            aperture=float(rng.uniform(0.5 * math.pi, 0.85 * math.pi)),
-            angle=float(rng.uniform(0, 2 * math.pi)),
-        )
-    if obstacle_type == "polygon":
-        return _create_random_polygon(center, rng)
-    raise ValueError(f"Unknown obstacle type: {obstacle_type!r}")
+    match obstacle_type:
+        case "circle":
+            return Circle(center=center, radius=float(rng.uniform(0.1, 0.5)))
+        case "box":
+            return Box(
+                center=center,
+                half_size=(float(rng.uniform(0.1, 0.5)), float(rng.uniform(0.1, 0.5))),
+                angle=float(rng.uniform(0, math.pi)),
+            )
+        case "arc":
+            return Arc(
+                center=center,
+                radius=float(rng.uniform(0.25, 0.55)),
+                thickness=float(rng.uniform(0.06, 0.14)),
+                aperture=float(rng.uniform(0.5 * math.pi, 0.85 * math.pi)),
+                angle=float(rng.uniform(0, 2 * math.pi)),
+            )
+        case "polygon":
+            return _create_random_polygon(center, rng)
+        case _:
+            assert_never(obstacle_type)
 
 
 def create_random_scene(config: SceneGeneratorConfig, rng: np.random.Generator) -> Scene:

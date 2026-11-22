@@ -6,8 +6,8 @@ from metacosdf.models import MLPConfig
 from metacosdf.robot import PlanarArm
 from metacosdf.scene_generator.obstacles import Box, Circle, Composition
 from metacosdf.scene_generator.scene import Scene
-from metacosdf.scene_generator.visualizer import SceneVisualizer
 from metacosdf.training import TrainingConfig
+from metacosdf.visualization import SceneVisualizationConfig
 
 if __name__ == "__main__":
     configs_dir = Path(__file__).parent.parent / "configs"
@@ -24,11 +24,12 @@ if __name__ == "__main__":
         )
     )
     default_scene = Scene(obstacle=default_circle, robot=default_arm)
-    default_visualizer = SceneVisualizer(scene=default_scene)
-    config_dict = {
-        "scene_visualizer": default_visualizer.to_dict(),
-    }
-    save_config(config_dict, configs_dir / "default_scene.yaml")
+    save_config({"scene": default_scene.to_dict()}, configs_dir / "default_scene.yaml")
+
+    save_config(
+        {"scene_visualization": SceneVisualizationConfig().to_dict()},
+        configs_dir / "scene_visualization.yaml",
+    )
 
     save_config({"dataset": DatasetConfig().to_dict()}, configs_dir / "dataset.yaml")
 

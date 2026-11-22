@@ -12,8 +12,8 @@ from metacosdf.fields import NeuralField, embedding_size, evaluate_on_grid
 from metacosdf.metrics import field_metrics
 from metacosdf.models import MLP, MLPConfig
 from metacosdf.scene_generator.scene import SamplingConfig, Scene
-from metacosdf.scene_generator.visualizer import SceneVisualizer
 from metacosdf.training import TrainingConfig, fit_field
+from metacosdf.visualization import plot_overview, plot_samples
 
 ROOT = Path(__file__).parent.parent
 
@@ -33,8 +33,7 @@ if __name__ == "__main__":
     torch.manual_seed(training_config.seed)
 
     if args.dataset is None:
-        scene_config = load_config(ROOT / "configs" / "default_scene.yaml")
-        scene = SceneVisualizer.from_dict(scene_config["scene_visualizer"]).scene
+        scene = Scene.from_dict(load_config(ROOT / "configs" / "default_scene.yaml")["scene"])
         q, labels = scene.sample_configurations(SamplingConfig())
     else:
         entry = torch.load(args.dataset)["scenes"][args.scene_index]
@@ -52,12 +51,9 @@ if __name__ == "__main__":
     metrics = field_metrics(prediction, ground_truth)
     print(", ".join(f"{name} {value:.3f}" for name, value in metrics.items()))
 
-    visualizer = SceneVisualizer(scene=scene)
-    visualizer.plot_overview(ground_truth, fields={"MLP": prediction})
+    plot_overview(scene, ground_truth, fields={"MLP": prediction})
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.6))
-    visualizer.plot_samples(
-        q, labels, axes[0], ground_truth=ground_truth, title="training data"
-    )
+    plot_samples(q, labels, ax=axes[0], ground_truth=ground_truth, title="training data")
     axes[1].plot(history)
     axes[1].set(xlabel="epoch", ylabel="loss", yscale="log")
     fig.tight_layout()

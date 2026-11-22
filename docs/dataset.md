@@ -17,8 +17,7 @@ dataset = {
         "generator": {  # SceneGeneratorConfig: random scenes
             "robot": {  # PlanarArm, common to all scenes
                 "link_lengths": [1.0, 1.0],
-                "base_position_x": 0.0,
-                "base_position_y": 0.0,
+                "base_position": [0.0, 0.0],
                 "link_radius": 0.1,
             },
             "bounds": {"xmin": -3.0, "xmax": 3.0, "ymin": -3.0, "ymax": 3.0},
@@ -56,22 +55,18 @@ dataset = {
                 "obstacle": {
                     "elements": [
                         {
-                            "center_x": 1.0,
-                            "center_y": 1.0,
+                            "center": [1.0, 1.0],
                             "radius": 0.5,
                             "obstacle_type": "circle",
                         },
                         {
-                            "center_x": -1.5,
-                            "center_y": 0.8,
-                            "half_size_x": 0.3,
-                            "half_size_y": 0.5,
+                            "center": [-1.5, 0.8],
+                            "half_size": [0.3, 0.5],
                             "angle": 0.785,  # counter-clockwise rotation in radians
                             "obstacle_type": "box",
                         },
                         {
-                            "center_x": 0.5,
-                            "center_y": -1.2,
+                            "center": [0.5, -1.2],
                             "radius": 0.4,
                             "thickness": 0.1,
                             "aperture": 2.356,  # half-angle in (0, pi)
@@ -79,7 +74,13 @@ dataset = {
                             "obstacle_type": "arc",
                         },
                         {
-                            "vertices": [[0.2, 0.2], [0.8, 0.1], [0.5, 0.4], [0.9, 0.8], [0.1, 0.7]],
+                            "vertices": [
+                                [0.2, 0.2],
+                                [0.8, 0.1],
+                                [0.5, 0.4],
+                                [0.9, 0.8],
+                                [0.1, 0.7],
+                            ],
                             "obstacle_type": "polygon",
                         },
                     ],

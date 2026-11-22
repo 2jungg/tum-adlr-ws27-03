@@ -155,7 +155,7 @@ class SceneVisualizer(Config):
         _draw_zero_level(ax, grid_x, grid_y, sdf_values, colors="black", linewidths=1.0)
 
         robot = self.scene.robot
-        base = (robot.base_position_x, robot.base_position_y)
+        base = robot.base_position
         ax.add_patch(
             plt.Circle(
                 base, robot.reach + robot.link_radius, fill=False, ls="--", color="0.5", lw=1.0

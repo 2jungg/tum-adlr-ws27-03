@@ -14,14 +14,14 @@ if __name__ == "__main__":
     # the whole arm up to 2.1
     scene = Scene(
         obstacle=Composition(
-            elements=[
+            elements=(
                 # 0.95 from the base: link 1 can hit it
                 # -> a full-height vertical band in C-space
-                Circle(center_x=1.2, center_y=0.5, radius=0.35),
+                Circle(center=(1.2, 0.5), radius=0.35),
                 # 1.16 from the base: only link 2 can reach it
                 # -> a curved blob in C-space
-                Box(center_x=-1.2, center_y=1.1, half_size_x=0.3, half_size_y=0.4, angle=0.5),
-            ]
+                Box(center=(-1.2, 1.1), half_size=(0.3, 0.4), angle=0.5),
+            )
         ),
         robot=PlanarArm(),
     )

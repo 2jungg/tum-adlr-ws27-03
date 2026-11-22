@@ -23,16 +23,12 @@ class Obstacle(Config, ABC):
 
 @dataclass
 class Circle(Obstacle):
-    center_x: float
-    center_y: float
+    center: tuple[float, float]
     radius: float
 
     def sdf(self, p: Tensor) -> Tensor:
         torchify = torchify_as(p)
-        return (
-            torch.linalg.vector_norm(p - torchify((self.center_x, self.center_y)), dim=-1)
-            - self.radius
-        )
+        return torch.linalg.vector_norm(p - torchify(self.center), dim=-1) - self.radius
 
     @classmethod
     def config_key(cls) -> str:
@@ -41,15 +37,13 @@ class Circle(Obstacle):
 
 @dataclass
 class Box(Obstacle):
-    center_x: float
-    center_y: float
-    half_size_x: float
-    half_size_y: float
+    center: tuple[float, float]
+    half_size: tuple[float, float]
     angle: float = 0.0  # counter-clockwise rotation in radians
 
     def sdf(self, p: Tensor) -> Tensor:
         torchify = torchify_as(p)
-        offset = p - torchify((self.center_x, self.center_y))
+        offset = p - torchify(self.center)
         cos_angle, sin_angle = math.cos(self.angle), math.sin(self.angle)
         local = torch.stack(
             [
@@ -59,7 +53,7 @@ class Box(Obstacle):
             dim=-1,
         )  # R^T offset: p in the box frame
         # by symmetry only one quadrant matters: the position relative to the box corner
-        corner_offset = local.abs() - torchify((self.half_size_x, self.half_size_y))
+        corner_offset = local.abs() - torchify(self.half_size)
         outside = torch.linalg.vector_norm(corner_offset.clamp(min=0), dim=-1)
         inside = corner_offset.amax(dim=-1).clamp(max=0)
         return outside + inside
@@ -73,8 +67,7 @@ class Box(Obstacle):
 class Arc(Obstacle):
     """Circular arc (horseshoe) with rounded ends. Inigo Quilez's sdArc."""
 
-    center_x: float
-    center_y: float
+    center: tuple[float, float]
     radius: float
     thickness: float
     aperture: float  # half-angle in (0, pi); total angular span is 2 * aperture
@@ -82,7 +75,7 @@ class Arc(Obstacle):
 
     def sdf(self, p: Tensor) -> Tensor:
         torchify = torchify_as(p)
-        offset = p - torchify((self.center_x, self.center_y))
+        offset = p - torchify(self.center)
         cos_angle, sin_angle = math.cos(self.angle), math.sin(self.angle)
         # R^T offset: arc symmetry axis aligned with +y, opening facing -y
         local_x = (cos_angle * offset[..., 0] + sin_angle * offset[..., 1]).abs()
@@ -105,7 +98,7 @@ class Arc(Obstacle):
 class Polygon(Obstacle):
     """Simple polygon (convex or non-convex), vertices in order. Inigo Quilez's sdPolygon."""
 
-    vertices: list[list[float]]
+    vertices: tuple[tuple[float, float], ...]
 
     def sdf(self, p: Tensor) -> Tensor:
         torchify = torchify_as(p)
@@ -133,7 +126,7 @@ class Polygon(Obstacle):
 
 @dataclass
 class Composition(Obstacle):
-    elements: list[Obstacle]
+    elements: tuple[Obstacle, ...]
 
     def sdf(self, p: Tensor) -> Tensor:
         """(..., 2) -> (...): get the minimum of obstacle's SDFs."""

@@ -9,7 +9,7 @@ import torch
 
 from metacosdf.fields import NeuralField, embedding_size, evaluate_on_grid
 from metacosdf.metrics import field_metrics
-from metacosdf.models import MLP, MLPConfig
+from metacosdf.modules import MLP, MLPConfig
 from metacosdf.scene_generator.scene import SamplingConfig, Scene
 from metacosdf.training import TrainingConfig, fit_field
 from metacosdf.visualization import plot_overview, plot_samples

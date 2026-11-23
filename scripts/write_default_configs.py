@@ -2,7 +2,7 @@ from pathlib import Path
 
 from metacosdf.config_utils import save_config
 from metacosdf.dataset import DatasetConfig
-from metacosdf.models import MLPConfig
+from metacosdf.modules import MLPConfig
 from metacosdf.robot import PlanarArm
 from metacosdf.scene_generator.obstacles import Box, Circle, Composition
 from metacosdf.scene_generator.scene import Scene

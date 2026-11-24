@@ -1,11 +1,8 @@
 dataset:
   generator:
     robot:
-      link_lengths:
-      - 1.0
-      - 1.0
-      base_position_x: 0.0
-      base_position_y: 0.0
+      link_lengths: [1.0, 1.0]
+      base_position: [0.0, 0.0]
       link_radius: 0.1
     bounds:
       xmin: -3.0
@@ -14,6 +11,7 @@ dataset:
       ymax: 3.0
     max_obstacles: 4
     min_base_clearance: 0.2
+    obstacle_types: [circle, box, arc, polygon]
   sampling:
     n_samples: 5000
     boundary_sampling: true

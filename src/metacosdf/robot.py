@@ -1,5 +1,5 @@
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import torch
 from torch import Tensor
@@ -12,9 +12,8 @@ from metacosdf.tensor_utils import torchify_as
 class PlanarArm(Config):
     """Planar serial arm with revolute joints."""
 
-    link_lengths: list[float] = field(default_factory=lambda: [1.0, 1.0])
-    base_position_x: float = 0.0
-    base_position_y: float = 0.0
+    link_lengths: tuple[float, ...] = (1.0, 1.0)
+    base_position: tuple[float, float] = (0.0, 0.0)
     link_radius: float = 0.1
 
     @property
@@ -35,7 +34,7 @@ class PlanarArm(Config):
         # (..., n, 2)
         link_vectors = lengths[:, None] * torch.stack([angles.cos(), angles.sin()], dim=-1)
         # (2)
-        base = torchify([self.base_position_x, self.base_position_y])
+        base = torchify(self.base_position)
         # (..., n, 2)
         joints = base + torch.cumsum(link_vectors, dim=-2)
         return torch.cat([base.expand(*q.shape[:-1], 1, 2), joints], dim=-2)

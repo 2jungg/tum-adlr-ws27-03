@@ -6,7 +6,6 @@ from pathlib import Path
 
 import torch
 
-from metacosdf.config_utils import load_config
 from metacosdf.dataset import DatasetConfig, build_split
 
 ROOT = Path(__file__).parent.parent
@@ -17,7 +16,7 @@ if __name__ == "__main__":
     parser.add_argument("--eval", action="store_true", help="build only eval.pt")
     args = parser.parse_args()
 
-    config = DatasetConfig.from_dict(load_config(args.config)["dataset"])
+    config = DatasetConfig.from_yaml(args.config)
     out_dir = ROOT / config.out_dir
     out_dir.mkdir(parents=True, exist_ok=True)
     for split in ["eval"] if args.eval else ["train", "val", "eval"]:

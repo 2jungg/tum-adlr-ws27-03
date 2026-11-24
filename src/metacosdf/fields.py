@@ -35,9 +35,12 @@ class NeuralField(nn.Module):
 
 @torch.no_grad()
 def evaluate_on_grid(
-    field: Field, resolution: int = 256, device: str = "cpu", chunk_size: int = 16384
+    field: Callable[[Tensor], Tensor],
+    resolution: int = 256,
+    device: str = "cpu",
+    chunk_size: int = 16384,
 ) -> Tensor:
-    """(res, res) values on cspace_grid(res), returned on the CPU"""
+    """(res, res) values on cspace_grid(res), always returned on the CPU"""
     q = cspace_grid(resolution).reshape(-1, 2).to(device)
     values = torch.cat([field(q_chunk) for q_chunk in q.split(chunk_size)])
     return values.reshape(resolution, resolution).cpu()

@@ -1,20 +1,22 @@
-"""Fitting a field to collision labels, with the loss of the Co-SDF MLP baseline."""
+"""Fitting a field to collision labels with a loss from losses.py."""
 
+import math
+from collections import defaultdict
 from dataclasses import dataclass
 
 import torch
 from torch import Tensor, nn
 
 from metacosdf.config_utils import Config
+from metacosdf.losses import LossConfig, field_loss
 
 
 @dataclass
 class TrainingConfig(Config):
-    epochs: int = 100
+    # Co-SDF, 2-DoF: Adam, learning rate 5e-4, batch 200, 200 epochs
+    epochs: int = 200
     batch_size: int = 200
-    learning_rate: float = 1e-3
-    # 0 turns the Eikonal term off
-    eikonal_weight: float = 0.1
+    learning_rate: float = 5e-4
     # network initialization and batch order
     seed: int = 0
     device: str = "cpu"
@@ -22,22 +24,17 @@ class TrainingConfig(Config):
     log_every: int = 10
 
 
-def field_loss(field: nn.Module, q: Tensor, labels: Tensor, eikonal_weight: float) -> Tensor:
-    """MSE to the labels + eikonal_weight * mean((|grad_q d(q)| - 1)^2)"""
-    if eikonal_weight == 0:
-        return ((field(q) - labels) ** 2).mean()
-    q = q.detach().requires_grad_(True)
-    distance = field(q)
-    # create_graph: the Eikonal term is differentiated too
-    (gradient,) = torch.autograd.grad(distance.sum(), q, create_graph=True)
-    eikonal = ((torch.linalg.vector_norm(gradient, dim=-1) - 1) ** 2).mean()
-    return ((distance - labels) ** 2).mean() + eikonal_weight * eikonal
-
-
 def fit_field(
-    field: nn.Module, q: Tensor, labels: Tensor, config: TrainingConfig
-) -> list[float]:
-    """q (N, n), labels (N,) in {-1, +1} -> mean loss of every epoch"""
+    field: nn.Module,
+    q: Tensor,
+    labels: Tensor,
+    loss_config: LossConfig,
+    config: TrainingConfig,
+) -> list[dict[str, float]]:
+    """
+    q (N, n), labels (N,) in {-1, +1} -> per epoch, the mean of the total loss and of every
+    unweighted term
+    """
     device = torch.device(config.device)
     field.to(device)
     q, labels = q.to(device), labels.to(device)
@@ -46,14 +43,21 @@ def fit_field(
     history = []
     for epoch in range(1, config.epochs + 1):
         permutation = torch.randperm(len(q), generator=batch_order).to(device)
-        total_loss = 0.0
+        # summed on the device, so the CPU never waits for the GPU inside the epoch
+        sums: defaultdict[str, Tensor] = defaultdict(lambda: torch.zeros((), device=device))
         for batch in permutation.split(config.batch_size):
-            loss = field_loss(field, q[batch], labels[batch], config.eikonal_weight)
+            total, terms = field_loss(field, q[batch], labels[batch], loss_config, epoch)
             optimizer.zero_grad()
-            loss.backward()
+            total.backward()
             optimizer.step()
-            total_loss += loss.item() * len(batch)
-        history.append(total_loss / len(q))
+            for name, value in {"total": total.detach(), **terms}.items():
+                sums[name] += value * len(batch)
+        # one transfer per epoch
+        means = (torch.stack(list(sums.values())) / len(q)).tolist()
+        history.append(dict(zip(sums, means, strict=True)))
+        if not math.isfinite(history[-1]["total"]):
+            raise FloatingPointError(f"epoch {epoch}: non-finite loss {history[-1]}")
         if config.log_every and epoch % config.log_every == 0:
-            print(f"epoch {epoch:4d}/{config.epochs}: loss {history[-1]:.4f}")
+            terms_text = ", ".join(f"{name} {value:.4f}" for name, value in history[-1].items())
+            print(f"epoch {epoch:4d}/{config.epochs}: {terms_text}")
     return history

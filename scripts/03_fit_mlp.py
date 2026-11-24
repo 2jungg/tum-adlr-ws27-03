@@ -1,4 +1,5 @@
-"""Fit an MLP field to one scene: the default scene, or an eval scene with --dataset."""
+"""Fit one field (module, loss and training from --config) to one scene: the default scene, or
+an eval scene with --dataset."""
 
 import argparse
 import time
@@ -8,8 +9,9 @@ import matplotlib.pyplot as plt
 import torch
 
 from metacosdf.fields import NeuralField, embedding_size, evaluate_on_grid
+from metacosdf.losses import LossConfig
 from metacosdf.metrics import field_metrics
-from metacosdf.modules import MLP, MLPConfig
+from metacosdf.modules import ModuleConfig
 from metacosdf.scene_generator.scene import SamplingConfig, Scene
 from metacosdf.training import TrainingConfig, fit_field
 from metacosdf.visualization import plot_overview, plot_samples
@@ -24,7 +26,8 @@ if __name__ == "__main__":
     parser.add_argument("--device", help="overrides training.device of the config, e.g. cuda")
     args = parser.parse_args()
 
-    model_config = MLPConfig.from_yaml(args.config)
+    module_config = ModuleConfig.from_yaml(args.config)
+    loss_config = LossConfig.from_yaml(args.config)
     training_config = TrainingConfig.from_yaml(args.config)
     if args.device is not None:
         training_config.device = args.device
@@ -39,9 +42,9 @@ if __name__ == "__main__":
         q, labels = entry["train_q"], entry["train_y"]
     print(f"{len(q)} samples, {(labels < 0).float().mean():.1%} in collision")
 
-    field = NeuralField(scene.robot, MLP(embedding_size(scene.robot), model_config))
+    field = NeuralField(scene.robot, module_config.create_module(embedding_size(scene.robot)))
     start = time.perf_counter()
-    history = fit_field(field, q, labels, training_config)
+    history = fit_field(field, q, labels, loss_config, training_config)
     print(f"trained in {time.perf_counter() - start:.1f} s")
 
     ground_truth = scene.cspace_sdf()
@@ -49,10 +52,12 @@ if __name__ == "__main__":
     metrics = field_metrics(prediction, ground_truth)
     print(", ".join(f"{name} {value:.3f}" for name, value in metrics.items()))
 
-    plot_overview(scene, ground_truth, fields={"MLP": prediction})
+    plot_overview(scene, ground_truth, fields={args.config.stem: prediction})
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.6))
     plot_samples(q, labels, ax=axes[0], ground_truth=ground_truth, title="training data")
-    axes[1].plot(history)
-    axes[1].set(xlabel="epoch", ylabel="loss", yscale="log")
+    for term in history[0]:
+        axes[1].plot([epoch_terms[term] for epoch_terms in history], label=term)
+    axes[1].set(xlabel="epoch", ylabel="mean over the epoch")
+    axes[1].legend()
     fig.tight_layout()
     plt.show()

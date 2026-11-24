@@ -2,7 +2,8 @@ from pathlib import Path
 
 from metacosdf.config_utils import save_config
 from metacosdf.dataset import DatasetConfig
-from metacosdf.modules import MLPConfig
+from metacosdf.losses import HKRConfig, LossConfig, MSEConfig
+from metacosdf.modules import MLPConfig, ModuleConfig, SLLConfig
 from metacosdf.robot import PlanarArm
 from metacosdf.scene_generator.obstacles import Box, Circle, Composition
 from metacosdf.scene_generator.scene import Scene
@@ -28,7 +29,18 @@ if __name__ == "__main__":
     SceneVisualizationConfig().to_yaml(configs_dir / "scene_visualization.yaml")
     DatasetConfig().to_yaml(configs_dir / "dataset.yaml")
 
-    save_config(
-        {"model": MLPConfig().to_dict(), "training": TrainingConfig().to_dict()},
-        configs_dir / "fit_mlp.yaml",
-    )
+    # one file per fit: module, loss and training, the same training for every fit
+    fits = {
+        "fit_mlp_no_eikonal.yaml": (MLPConfig(), MSEConfig(eikonal_weight=0.0)),
+        "fit_mlp.yaml": (MLPConfig(), MSEConfig()),
+        "fit_cosdf.yaml": (SLLConfig(), HKRConfig()),
+    }
+    for file_name, (module_config, loss_config) in fits.items():
+        save_config(
+            {
+                ModuleConfig.key(): module_config.to_dict(),
+                LossConfig.key(): loss_config.to_dict(),
+                TrainingConfig.key(): TrainingConfig().to_dict(),
+            },
+            configs_dir / file_name,
+        )

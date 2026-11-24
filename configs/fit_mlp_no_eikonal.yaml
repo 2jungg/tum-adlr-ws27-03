@@ -1,0 +1,15 @@
+module:
+  hidden_layer_width: 128
+  hidden_layer_count: 3
+  activation_function: silu
+  module_type: mlp
+loss:
+  eikonal_weight: 0.0
+  loss_type: mse
+training:
+  epochs: 200
+  batch_size: 200
+  learning_rate: 0.0005
+  seed: 0
+  device: cpu
+  log_every: 10

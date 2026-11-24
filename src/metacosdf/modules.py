@@ -1,9 +1,9 @@
 """Networks on the embedding phi(q) from fields.py, never on raw joint angles."""
 
+import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Literal
-import math
 
 import torch
 from torch import Tensor, nn
@@ -83,7 +83,7 @@ class LipschitzLayer(nn.Module):
         self.q = nn.Parameter(torch.randn(width))
         nn.init.xavier_normal_(self.weight)
         bound = 1 / math.sqrt(width)
-        nn.init.uniform_(self.weight, -bound, bound)
+        nn.init.uniform_(self.bias, -bound, bound)
 
     def compute_t(self) -> Tensor:
         gram = self.weight.T @ self.weight
@@ -107,7 +107,6 @@ class NormalizedLinear(nn.Module):
 
 
 class SLL(nn.Module):
-
     def __init__(
         self,
         input_dim: int,

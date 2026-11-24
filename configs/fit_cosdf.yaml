@@ -1,0 +1,20 @@
+module:
+  hidden_layer_width: 256
+  hidden_layer_count: 10
+  activation_function: relu
+  module_type: sll
+loss:
+  eikonal_weight: 0.1
+  margin: 0.01
+  hinge_weight_steps:
+  - [1, 1.0]
+  - [5, 10.0]
+  - [10, 100.0]
+  loss_type: hkr
+training:
+  epochs: 200
+  batch_size: 200
+  learning_rate: 0.0005
+  seed: 0
+  device: cpu
+  log_every: 10

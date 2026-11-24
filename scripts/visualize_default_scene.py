@@ -6,7 +6,14 @@ import matplotlib.pyplot as plt
 import torch
 
 from metacosdf.scene_generator.scene import Scene, cspace_grid
-from metacosdf.visualization import SceneVisualizationConfig, plot_overview, plot_workspace
+from metacosdf.visualization import (
+    SceneVisualizationConfig,
+    plot_overview,
+    plot_workspace,
+    save_figures,
+)
+
+PLOTS_DIR = Path(__file__).parent.parent / "plots" / Path(__file__).stem
 
 if __name__ == "__main__":
     configs_dir = Path(__file__).parent.parent / "configs"
@@ -41,7 +48,7 @@ if __name__ == "__main__":
     # on the dashed ground-truth boundary.
     grid = cspace_grid(256)  # (256, 256, 2)
     ground_truth = scene.cspace_sdf(256)  # (256, 256), radians
-    plot_overview(
+    overview = plot_overview(
         scene,
         ground_truth,
         qs=poses,
@@ -52,4 +59,5 @@ if __name__ == "__main__":
         },
         config=config,
     )
+    save_figures({"workspace": fig, "cspace": overview}, PLOTS_DIR)
     plt.show()

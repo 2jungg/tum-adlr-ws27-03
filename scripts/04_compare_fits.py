@@ -1,5 +1,5 @@
-"""Fit one field per config to the same scene and training data, and compare them. By default:
-the MLP with MSE, the MLP with MSE + Eikonal, and Co-SDF (SLL with hKR + Eikonal)."""
+"""Fit one field per config to the same scene and training data, and compare their metrics,
+fields and loss curves."""
 
 import argparse
 import time
@@ -15,27 +15,28 @@ from metacosdf.metrics import field_metrics
 from metacosdf.modules import ModuleConfig
 from metacosdf.scene_generator.scene import SamplingConfig, Scene
 from metacosdf.training import TrainingConfig, fit_field
-from metacosdf.visualization import plot_overview, plot_samples
+from metacosdf.visualization import plot_overview, plot_samples, save_figures
 
 ROOT = Path(__file__).parent.parent
 DEFAULT_CONFIGS = [
     ROOT / "configs" / name
-    for name in ("fit_mlp_no_eikonal.yaml", "fit_mlp.yaml", "fit_cosdf.yaml")
+    for name in ("fit_mlp_no_eikonal.yaml", "fit_mlp.yaml", "fit_siren.yaml", "fit_cosdf.yaml")
 ]
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--configs", type=Path, nargs="+", default=DEFAULT_CONFIGS)
+    parser.add_argument("--scene", type=Path, default=ROOT / "configs" / "cluttered_scene.yaml")
     parser.add_argument("--dataset", type=Path, help="eval.pt, the only split that has scenes")
     parser.add_argument("--scene-index", type=int, default=0)
     parser.add_argument("--seed", type=int, default=0, help="for sampling the training data")
     parser.add_argument("--device", help="overrides training.device of every config, e.g. cuda")
-    parser.add_argument("--save-dir", type=Path, help="save figures instead of showing them")
+    parser.add_argument("--save-dir", type=Path, default=ROOT / "plots" / Path(__file__).stem)
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
     if args.dataset is None:
-        scene = Scene.from_yaml(ROOT / "configs" / "default_scene.yaml")
+        scene = Scene.from_yaml(args.scene)
         q, labels = scene.sample_configurations(SamplingConfig())
     else:
         entry = torch.load(args.dataset)["scenes"][args.scene_index]
@@ -55,7 +56,7 @@ if __name__ == "__main__":
         if args.device is not None:
             training_config.device = args.device
         print(f"\n{name}: {module_config}, {loss_config}")
-        # the same initialization whatever the order of the configs
+        # reseeded so that a field's initialization does not depend on the configs before it
         torch.manual_seed(training_config.seed)
         network = module_config.create_module(embedding_size(scene.robot))
         field = NeuralField(scene.robot, network)
@@ -89,11 +90,5 @@ if __name__ == "__main__":
         ax.set(title=name, xlabel="epoch", ylabel="mean over the epoch")
         ax.legend()
     training.tight_layout()
-
-    if args.save_dir is None:
-        plt.show()
-    else:
-        args.save_dir.mkdir(parents=True, exist_ok=True)
-        overview.savefig(args.save_dir / "overview.png", dpi=150, bbox_inches="tight")
-        training.savefig(args.save_dir / "training.png", dpi=150, bbox_inches="tight")
-        print(f"figures saved in {args.save_dir}")
+    save_figures({"overview": overview, "training": training}, args.save_dir)
+    plt.show()

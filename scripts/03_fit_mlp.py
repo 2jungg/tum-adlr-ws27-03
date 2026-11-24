@@ -14,9 +14,10 @@ from metacosdf.metrics import field_metrics
 from metacosdf.modules import ModuleConfig
 from metacosdf.scene_generator.scene import SamplingConfig, Scene
 from metacosdf.training import TrainingConfig, fit_field
-from metacosdf.visualization import plot_overview, plot_samples
+from metacosdf.visualization import plot_overview, plot_samples, save_figures
 
 ROOT = Path(__file__).parent.parent
+PLOTS_DIR = ROOT / "plots" / Path(__file__).stem
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -52,7 +53,7 @@ if __name__ == "__main__":
     metrics = field_metrics(prediction, ground_truth)
     print(", ".join(f"{name} {value:.3f}" for name, value in metrics.items()))
 
-    plot_overview(scene, ground_truth, fields={args.config.stem: prediction})
+    overview = plot_overview(scene, ground_truth, fields={args.config.stem: prediction})
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.6))
     plot_samples(q, labels, ax=axes[0], ground_truth=ground_truth, title="training data")
     for term in history[0]:
@@ -60,4 +61,5 @@ if __name__ == "__main__":
     axes[1].set(xlabel="epoch", ylabel="mean over the epoch")
     axes[1].legend()
     fig.tight_layout()
+    save_figures({"overview": overview, "training": fig}, PLOTS_DIR)
     plt.show()

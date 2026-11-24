@@ -141,3 +141,61 @@ class SLLConfig(ModuleConfig):
             self.hidden_layer_width,
             activation_function=ACTIVATIONS_TO_TORCH[self.activation_function],
         )
+
+
+class Sine(nn.Module):
+    """x -> sin(omega x)"""
+
+    def __init__(self, omega: float) -> None:
+        super().__init__()
+        self.omega = omega
+
+    def forward(self, x: Tensor) -> Tensor:
+        return torch.sin(self.omega * x)
+
+
+class SIREN(nn.Module):
+    """
+    Sitzmann et al. 2020: hidden layers sin(omega (W x + b)), then a linear output layer.
+    Initialization from the paper (Sec. 3.2) and its code, n = fan-in: W ~ U(-1/n, 1/n) in
+    the first layer, W ~ U(-sqrt(6/n)/omega, sqrt(6/n)/omega) in all later ones, default
+    biases. The inputs of the hidden sines then stay about N(0, 1) at any depth, and the
+    first layer spans several periods over inputs in [-1, 1].
+    """
+
+    def __init__(
+        self,
+        input_dim: int,
+        hidden_layer_count: int,
+        hidden_layer_width: int,
+        omega: float,
+    ) -> None:
+        super().__init__()
+        layers = []
+        layers.append(nn.Linear(input_dim, hidden_layer_width))
+        layers.append(Sine(omega))
+        for _ in range(hidden_layer_count - 1):
+            layers += [nn.Linear(hidden_layer_width, hidden_layer_width), Sine(omega)]
+        layers.append(nn.Linear(hidden_layer_width, 1))
+        first, *others = [layer for layer in layers if isinstance(layer, nn.Linear)]
+        nn.init.uniform_(first.weight, -1 / input_dim, 1 / input_dim)
+        bound = math.sqrt(6 / hidden_layer_width) / omega
+        for linear in others:
+            nn.init.uniform_(linear.weight, -bound, bound)
+        self.layers = nn.Sequential(*layers)
+
+    def forward(self, inputs: Tensor) -> Tensor:
+        """(..., input_dim) -> (...)"""
+        return self.layers(inputs).squeeze(-1)
+
+
+@dataclass
+class SIRENConfig(ModuleConfig):
+    hidden_layer_width: int = 256
+    hidden_layer_count: int = 4
+    # 30 as in the paper, which assumes inputs in [-1, 1]; phi(q) spans [-1.5, 1.5] for the
+    # default arm. omega also scales every weight step: at lr 5e-4 the fit diverges, 1e-4 works
+    omega: float = 30.0
+
+    def create_module(self, input_dim: int) -> SIREN:
+        return SIREN(input_dim, self.hidden_layer_count, self.hidden_layer_width, self.omega)

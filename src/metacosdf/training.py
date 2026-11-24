@@ -1,5 +1,3 @@
-"""Fitting a field to collision labels with a loss from losses.py."""
-
 import math
 from collections import defaultdict
 from dataclasses import dataclass
@@ -31,10 +29,7 @@ def fit_field(
     loss_config: LossConfig,
     config: TrainingConfig,
 ) -> list[dict[str, float]]:
-    """
-    q (N, n), labels (N,) in {-1, +1} -> per epoch, the mean of the total loss and of every
-    unweighted term
-    """
+    """q (N, n), labels (N,) -> per epoch, the means of the total loss and of every term"""
     device = torch.device(config.device)
     field.to(device)
     q, labels = q.to(device), labels.to(device)
@@ -43,7 +38,7 @@ def fit_field(
     history = []
     for epoch in range(1, config.epochs + 1):
         permutation = torch.randperm(len(q), generator=batch_order).to(device)
-        # summed on the device, so the CPU never waits for the GPU inside the epoch
+        # summed on the device: an .item() per batch would make the CPU wait for the GPU
         sums: defaultdict[str, Tensor] = defaultdict(lambda: torch.zeros((), device=device))
         for batch in permutation.split(config.batch_size):
             total, terms = field_loss(field, q[batch], labels[batch], loss_config, epoch)
@@ -52,7 +47,7 @@ def fit_field(
             optimizer.step()
             for name, value in {"total": total.detach(), **terms}.items():
                 sums[name] += value * len(batch)
-        # one transfer per epoch
+        # the only wait for the GPU in the epoch
         means = (torch.stack(list(sums.values())) / len(q)).tolist()
         history.append(dict(zip(sums, means, strict=True)))
         if not math.isfinite(history[-1]["total"]):

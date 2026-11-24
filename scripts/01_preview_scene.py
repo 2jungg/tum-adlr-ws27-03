@@ -2,6 +2,7 @@
 
 import argparse
 import math
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -9,7 +10,9 @@ import torch
 
 from metacosdf.scene_generator.generator import SceneGeneratorConfig, create_random_scene
 from metacosdf.scene_generator.scene import SamplingConfig
-from metacosdf.visualization import plot_cspace, plot_samples, plot_workspace
+from metacosdf.visualization import plot_cspace, plot_samples, plot_workspace, save_figures
+
+PLOTS_DIR = Path(__file__).parent.parent / "plots" / Path(__file__).stem
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -31,4 +34,5 @@ if __name__ == "__main__":
         q_samples, y_samples = scene.sample_configurations(sampling)
         plot_samples(q_samples, y_samples, ax=axes[2], ground_truth=ground_truth)
     fig.tight_layout()
+    save_figures({"preview": fig}, PLOTS_DIR)
     plt.show()

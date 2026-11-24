@@ -364,3 +364,12 @@ def plot_overview(
         path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(path, dpi=200, bbox_inches="tight")
     return fig
+
+
+def save_figures(figures: dict[str, plt.Figure], directory: str | Path) -> None:
+    """directory/<name>.png for every figure; the directory is created if needed"""
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    for name, figure in figures.items():
+        figure.savefig(directory / f"{name}.png", dpi=150, bbox_inches="tight")
+    print(f"figures saved in {directory}")

@@ -1,0 +1,36 @@
+scene:
+  obstacle:
+    elements:
+    - center: [-0.9, 0.9]
+      radius: 0.55
+      thickness: 0.08
+      aperture: 2.2
+      angle: 0.7853981633974483
+      obstacle_type: arc
+    - vertices:
+      - [1.0, 0.35]
+      - [1.75, 0.35]
+      - [1.75, -0.75]
+      - [1.0, -0.75]
+      - [1.0, -0.47]
+      - [1.5, -0.47]
+      - [1.5, 0.07]
+      - [1.0, 0.07]
+      obstacle_type: polygon
+    - center: [-0.55, -0.5]
+      radius: 0.18
+      obstacle_type: circle
+    - center: [0.25, -1.65]
+      half_size: [0.28, 0.12]
+      angle: 0.4
+      obstacle_type: box
+    obstacle_type: composition
+  robot:
+    link_lengths: [1.0, 1.0]
+    base_position: [0.0, 0.0]
+    link_radius: 0.1
+  bounds:
+    xmin: -3.0
+    xmax: 3.0
+    ymin: -3.0
+    ymax: 3.0

@@ -1,5 +1,4 @@
-"""Losses on collision labels: MSE (Co-SDF's MLP and SIREN baselines) or hKR (Co-SDF), each
-with an optional Eikonal term."""
+"""Losses on collision labels y in {-1, +1} (-1: collision) for a field d(q)."""
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -12,21 +11,21 @@ from metacosdf.config_utils import Config
 
 @dataclass
 class LossConfig(Config, ABC):
-    # 0 turns the Eikonal term off
+    # weight of mean((|grad_q d| - 1)^2), Co-SDF Eq. (5); 0 skips the term
     eikonal_weight: float = 0.1
 
     @abstractmethod
     def loss_terms_values(self, distance: Tensor, labels: Tensor) -> dict[str, Tensor]:
-        """distance (B,), labels (B,) in {-1, +1} -> the unweighted terms on the labels"""
+        """distance (B,), labels (B,) -> unweighted terms"""
 
     @abstractmethod
     def loss_terms_weights(self, epoch: int) -> dict[str, float]:
-        """the weight of every term of label_terms in this epoch (counted from 1)"""
+        """weights of the terms of loss_terms_values; epochs count from 1"""
 
 
 @dataclass
 class MSEConfig(LossConfig):
-    """mean squared error to the labels"""
+    """mean((d - y)^2), Co-SDF's loss for its MLP and SIREN baselines"""
 
     def loss_terms_values(self, distance: Tensor, labels: Tensor) -> dict[str, Tensor]:
         return {"mse": mean_squared_error(distance, labels)}
@@ -37,14 +36,19 @@ class MSEConfig(LossConfig):
 
 @dataclass
 class HKRConfig(LossConfig):
-    """Co-SDF, Eq. (2)-(4): KR + lambda * hinge, the KR term weighted by the class shares"""
+    """
+    hKR, Co-SDF Eq. (2)-(4): mean(-y d) + lambda * mean(max(0, m - y d)).
+    The KR mean runs over the whole batch, so each class counts with its share of the
+    samples; Coiffier & Bethune's code takes one mean per class instead.
+    """
 
     margin: float = 1e-2
-    # (first epoch, lambda), sorted: Coiffier & Bethune's steps, Co-SDF only says 1 -> 100
+    # (first epoch, lambda), sorted by epoch. Co-SDF only says "from 1 to 100"; these steps
+    # are from Coiffier & Bethune's train_lip.py
     hinge_weight_steps: tuple[tuple[int, float], ...] = ((1, 1.0), (5, 10.0), (10, 100.0))
 
     def loss_terms_values(self, distance: Tensor, labels: Tensor) -> dict[str, Tensor]:
-        # > 0 where the sign is right
+        # y d > 0 where the sign is right
         signed = labels * distance
         return {"kr": kr_term(signed), "hinge": hinge_term(signed, self.margin)}
 
@@ -60,8 +64,9 @@ def field_loss(
     field: nn.Module, q: Tensor, labels: Tensor, config: LossConfig, epoch: int
 ) -> tuple[Tensor, dict[str, Tensor]]:
     """
-    q (B, n), labels (B,) in {-1, +1} -> the weighted total, and every unweighted term
-    detached for logging. The Eikonal gradient is taken w.r.t. q, as in Co-SDF, Eq. (5).
+    q (B, n), labels (B,) -> (weighted total, unweighted terms detached for logging).
+    The Eikonal gradient is taken w.r.t. q as in Co-SDF Eq. (5), although the SLL network
+    is 1-Lipschitz in phi(q), not in q.
     """
     if config.eikonal_weight > 0:
         q = q.detach().requires_grad_(True)
